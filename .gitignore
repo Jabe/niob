@@ -1,0 +1,7 @@
+bin/
+obj/
+/deploy
+*.user
+*.suo
+_ReSharper.*
+*.ReSharper
