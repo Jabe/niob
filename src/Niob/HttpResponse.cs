@@ -1,0 +1,81 @@
+﻿using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Text;
+
+namespace Niob
+{
+    public class HttpResponse
+    {
+        private List<Tuple<string, string>> _headers;
+
+        public HttpResponse()
+        {
+            Version = HttpVersion.Http10;
+            StatusCode = 501;
+            StatusText = "Not Implemented";
+        }
+
+        public HttpVersion Version { get; set; }
+        public ushort StatusCode { get; set; }
+        public string StatusText { get; set; }
+
+        public Stream ContentStream { get; set; }
+        public string ContentType { get; set; }
+        public string ContentCharSet { get; set; }
+
+        public IList<Tuple<string, string>> Headers
+        {
+            get { return _headers ?? (_headers = new List<Tuple<string, string>>()); }
+        }
+
+        public void WriteHeaders(Stream stream)
+        {
+            var writer = new StreamWriter(stream, Encoding.ASCII);
+
+            if (Version == HttpVersion.Http11)
+            {
+                writer.Write("HTTP/1.1");
+            }
+            else
+            {
+                writer.Write("HTTP/1.0");
+            }
+
+            writer.Write(" ");
+            writer.Write(StatusCode);
+            writer.Write(" ");
+            writer.Write(StatusText);
+            writer.Write("\r\n");
+
+            if (ContentStream != null)
+            {
+                writer.Write("Content-Length: " + ContentStream.Length);
+                writer.Write("\r\n");
+
+                if (ContentType != null)
+                {
+                    writer.Write("Content-Type: " + ContentType);
+
+                    if (ContentCharSet != null)
+                    {
+                        writer.Write("; charset=" + ContentCharSet);
+                    }
+
+                    writer.Write("\r\n");
+                }
+            }
+
+            foreach (var header in Headers)
+            {
+                writer.Write(header.Item1);
+                writer.Write(": ");
+                writer.Write(header.Item2);
+                writer.Write("\r\n");
+            }
+
+            writer.Write("\r\n");
+            writer.Flush();
+        }
+    }
+}
