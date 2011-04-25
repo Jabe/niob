@@ -7,13 +7,19 @@ namespace Niob
 {
     public class HttpResponse
     {
+        private readonly ClientState _clientState;
+
         private List<Tuple<string, string>> _headers;
 
-        public HttpResponse()
+        public HttpResponse(ClientState clientState)
         {
-            Version = HttpVersion.Http10;
+            _clientState = clientState;
+
+            Version = HttpVersion.Http11;
             StatusCode = 501;
             StatusText = "Not Implemented";
+
+            Version = HttpVersion.Http11;
         }
 
         public HttpVersion Version { get; set; }
@@ -64,6 +70,17 @@ namespace Niob
 
                     writer.Write("\r\n");
                 }
+            }
+
+            if (_clientState.KeepAlive)
+            {
+                writer.Write("Connection: keep-alive");
+                writer.Write("\r\n");
+            }
+            else if (Version != HttpVersion.Http10)
+            {
+                writer.Write("Connection: close");
+                writer.Write("\r\n");
             }
 
             foreach (var header in Headers)

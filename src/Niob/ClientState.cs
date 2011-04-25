@@ -35,6 +35,7 @@ namespace Niob
 
         public int HeaderLength { get; set; }
         public int ContentLength { get; set; }
+        public bool KeepAlive { get; set; }
 
         public byte[] OutBuffer
         {

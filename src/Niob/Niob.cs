@@ -104,7 +104,7 @@ namespace Niob
                     if (response == null)
                     {
                         // no handler
-                        response = new HttpResponse();
+                        response = new HttpResponse(clientState);
                     }
 
                     clientState.OutStream = new MemoryStream();
@@ -162,7 +162,16 @@ namespace Niob
             var clientState = (ClientState) ar.AsyncState;
             Socket client = clientState.Socket;
 
-            client.EndSend(ar);
+            try
+            {
+                client.EndSend(ar);
+            }
+            catch (SocketException e)
+            {
+                Console.WriteLine(e);
+                DropRequest(clientState);
+                return;
+            }
 
             long bytesToSend = clientState.OutStream.Length;
             long bytesSent = clientState.OutStream.Position;
@@ -173,10 +182,23 @@ namespace Niob
             }
             else
             {
-                using (clientState.Socket)
+                if (clientState.KeepAlive)
                 {
-                    clientState.Socket.Shutdown(SocketShutdown.Both);
-                    clientState.Socket.Close();
+                    clientState.HeaderLength = -1;
+                    clientState.ContentLength = -1;
+                    clientState.InStream.Position = 0;
+                    clientState.InStream.SetLength(0);
+
+                    _clients.Enqueue(clientState);
+                    KickWorkers();
+                }
+                else
+                {
+                    using (clientState.Socket)
+                    {
+                        clientState.Socket.Shutdown(SocketShutdown.Both);
+                        clientState.Socket.Close();
+                    }
                 }
             }
         }
@@ -186,7 +208,18 @@ namespace Niob
             var clientState = (ClientState) ar.AsyncState;
             Socket client = clientState.Socket;
 
-            int inBytes = client.EndReceive(ar);
+            int inBytes;
+
+            try
+            {
+                inBytes = client.EndReceive(ar);
+            }
+            catch (SocketException e)
+            {
+                Console.WriteLine(e);
+                DropRequest(clientState);
+                return;
+            }
 
             // copy to stream
             clientState.InStream.Write(clientState.InBuffer, 0, inBytes);
@@ -200,8 +233,7 @@ namespace Niob
             catch (ProtocolViolationException e)
             {
                 Console.WriteLine(e);
-
-                // stop.
+                DropRequest(clientState);
                 return;
             }
 
@@ -218,6 +250,21 @@ namespace Niob
             }
         }
 
+        private static void DropRequest(ClientState clientState)
+        {
+            try
+            {
+                using (clientState.Socket)
+                {
+                    clientState.Socket.Close();
+                }
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine("error while dropping a request: " + e);
+            }
+        }
+
         private static bool ShouldContinueReading(ClientState clientState)
         {
             bool continueRead = false;
@@ -230,6 +277,7 @@ namespace Niob
 
                 int headerLength = -1;
                 int contentLength = -1;
+                bool keepAlive = true;
 
                 for (int i = headerBytes.Length - 4; i >= 0; i--)
                 {
@@ -248,21 +296,24 @@ namespace Niob
 
                     if (headerBytes.Length > MaxHeaderSize)
                     {
-                        using (clientState.Socket)
-                        {
-                            clientState.Socket.Close();
-                        }
-
-                        throw new ProtocolViolationException("Header too big. Dropping request.");
+                        throw new ProtocolViolationException("Header too big.");
                     }
 
                     continueRead = true;
                 }
                 else
                 {
+                    // TODO better parsing
+
                     // header found. read the content-length http header
                     // to determine if we should continue reading.
                     string header = Encoding.ASCII.GetString(headerBytes, 0, headerLength);
+
+                    // TODO: this sucks
+                    if (header.Contains("HTTP/1.0\r\n"))
+                    {
+                        keepAlive = false;
+                    }
 
                     const string clMatch = "\r\nContent-Length: ";
 
@@ -283,10 +334,31 @@ namespace Niob
                             contentLength = -1;
                         }
                     }
+
+                    const string coMatch = "\r\nConnection: ";
+
+                    int coIndex = header.IndexOf(coMatch, StringComparison.OrdinalIgnoreCase);
+
+                    if (coIndex >= 0)
+                    {
+                        // connection header found.
+
+                        int crIndex = header.IndexOf('\r', coIndex + coMatch.Length);
+                        int startIndex = coIndex + coMatch.Length;
+                        int length = crIndex - startIndex;
+
+                        string mode = header.Substring(startIndex, length);
+
+                        if (StringComparer.OrdinalIgnoreCase.Compare(mode, "keep-alive") != 0)
+                        {
+                            keepAlive = false;
+                        }
+                    }
                 }
 
                 clientState.HeaderLength = headerLength;
                 clientState.ContentLength = contentLength;
+                clientState.KeepAlive = keepAlive;
             }
 
             // we got the header...
