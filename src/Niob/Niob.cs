@@ -49,6 +49,12 @@ namespace Niob
             }
         }
 
+        private void EnqueueAndKickWorkers(ClientState clientState)
+        {
+            _clients.Enqueue(clientState);
+            KickWorkers();
+        }
+
         private void KickWorkers()
         {
             _event.Set();
@@ -67,15 +73,9 @@ namespace Niob
             {
                 Socket client = socket.Accept();
 
-                Stopwatch sw = Stopwatch.StartNew();
-
                 var clientState = new ClientState(client, binding) {IsReading = true};
 
-                _clients.Enqueue(clientState);
-                KickWorkers();
-
-                sw.Stop();
-                //Console.WriteLine("Accept client: {0}", sw.Elapsed.ToStringAuto());
+                EnqueueAndKickWorkers(clientState);
             }
         }
 
@@ -119,11 +119,7 @@ namespace Niob
                     else
                     {
                         clientState.IsRendering = true;
-
-                        // put back in queue
-                        _clients.Enqueue(clientState);
-
-                        KickWorkers();
+                        EnqueueAndKickWorkers(clientState);
                     }
                 }
                 else if (clientState.IsWriting)
@@ -147,9 +143,7 @@ namespace Niob
                             clientState.InStream.SetLength(0);
 
                             clientState.IsKeepingAlive = true;
-
-                            _clients.Enqueue(clientState);
-                            KickWorkers();
+                            EnqueueAndKickWorkers(clientState);
                         }
                         else
                         {
@@ -192,10 +186,7 @@ namespace Niob
                     clientState.OutStream.Seek(0, SeekOrigin.Begin);
 
                     clientState.IsWriting = true;
-
-                    // put back in queue
-                    _clients.Enqueue(clientState);
-                    KickWorkers();
+                    EnqueueAndKickWorkers(clientState);
                 }
                 else
                 {
@@ -255,10 +246,7 @@ namespace Niob
             }
 
             clientState.IsWriting = true;
-
-            // put back in queue
-            _clients.Enqueue(clientState);
-            KickWorkers();
+            EnqueueAndKickWorkers(clientState);
         }
 
         private void ReadCallback(IAsyncResult ar)
@@ -283,10 +271,7 @@ namespace Niob
             clientState.InStream.Write(clientState.InBuffer, 0, inBytes);
 
             clientState.IsReading = true;
-
-            // put back in queue
-            _clients.Enqueue(clientState);
-            KickWorkers();
+            EnqueueAndKickWorkers(clientState);
         }
 
         private static void DropRequest(ClientState clientState)
