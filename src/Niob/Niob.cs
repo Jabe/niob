@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -147,10 +146,9 @@ namespace Niob
                         }
                         else
                         {
-                            using (clientState.Socket)
+                            using (clientState.Stream)
                             {
-                                clientState.Socket.Shutdown(SocketShutdown.Both);
-                                clientState.Socket.Close();
+                                clientState.Stream.Close();
                             }
                         }
                     }
@@ -214,8 +212,7 @@ namespace Niob
 
         private void ReadAsync(ClientState clientState)
         {
-            clientState.Socket.BeginReceive(clientState.InBuffer, 0, clientState.InBuffer.Length, SocketFlags.None,
-                                            ReadCallback, clientState);
+            clientState.Stream.BeginRead(clientState.InBuffer, 0, clientState.InBuffer.Length, ReadCallback, clientState);
         }
 
         private void WriteAsync(ClientState clientState)
@@ -226,19 +223,18 @@ namespace Niob
             var size = (int) Math.Min(bytesToSend - bytesSent, OutBufferSize);
 
             clientState.OutStream.Read(clientState.OutBuffer, 0, size);
-            clientState.Socket.BeginSend(clientState.OutBuffer, 0, size, SocketFlags.None, WriteCallback, clientState);
+            clientState.Stream.BeginWrite(clientState.OutBuffer, 0, size, WriteCallback, clientState);
         }
 
         private void WriteCallback(IAsyncResult ar)
         {
             var clientState = (ClientState) ar.AsyncState;
-            Socket client = clientState.Socket;
 
             try
             {
-                client.EndSend(ar);
+                clientState.Stream.EndWrite(ar);
             }
-            catch (SocketException e)
+            catch (IOException e)
             {
                 Console.WriteLine(e);
                 DropRequest(clientState);
@@ -252,15 +248,14 @@ namespace Niob
         private void ReadCallback(IAsyncResult ar)
         {
             var clientState = (ClientState) ar.AsyncState;
-            Socket client = clientState.Socket;
 
             int inBytes;
 
             try
             {
-                inBytes = client.EndReceive(ar);
+                inBytes = clientState.Stream.EndRead(ar);
             }
-            catch (SocketException e)
+            catch (IOException e)
             {
                 Console.WriteLine(e);
                 DropRequest(clientState);
@@ -278,9 +273,9 @@ namespace Niob
         {
             try
             {
-                using (clientState.Socket)
+                using (clientState.Stream)
                 {
-                    clientState.Socket.Close();
+                    clientState.Stream.Close();
                 }
             }
             catch (Exception e)

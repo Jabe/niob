@@ -6,6 +6,7 @@ namespace Niob
 {
     public class ClientState
     {
+        private readonly NetworkStream _stream;
         private byte[] _inBuffer;
         private MemoryStream _inStream;
 
@@ -18,6 +19,13 @@ namespace Niob
 
             HeaderLength = -1;
             ContentLength = -1;
+
+            _stream = new NetworkStream(Socket, true);
+        }
+
+        public NetworkStream Stream
+        {
+            get { return _stream; }
         }
 
         public Socket Socket { get; private set; }
