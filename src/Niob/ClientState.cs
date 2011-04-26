@@ -43,5 +43,10 @@ namespace Niob
         }
 
         public Stream OutStream { get; set; }
+
+        public bool IsReading { get; set; }
+        public bool IsWriting { get; set; }
+        public bool IsKeepingAlive { get; set; }
+        public bool IsRendering { get; set; }
     }
 }

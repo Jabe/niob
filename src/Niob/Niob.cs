@@ -22,12 +22,13 @@ namespace Niob
         private readonly ConcurrentQueue<ClientState> _clients = new ConcurrentQueue<ClientState>();
 
         private readonly AutoResetEvent _event = new AutoResetEvent(false);
-        public event EventHandler<RequestEventArgs> RequestAccepted;
 
         public List<Binding> Bindings
         {
             get { return _bindings; }
         }
+
+        public event EventHandler<RequestEventArgs> RequestAccepted;
 
         public void Start()
         {
@@ -68,7 +69,9 @@ namespace Niob
 
                 Stopwatch sw = Stopwatch.StartNew();
 
-                _clients.Enqueue(new ClientState(client, binding));
+                var clientState = new ClientState(client, binding) {IsReading = true};
+
+                _clients.Enqueue(clientState);
                 KickWorkers();
 
                 sw.Stop();
@@ -93,12 +96,81 @@ namespace Niob
                     continue;
                 }
 
-                if (clientState.HeaderLength == -1)
+                if (clientState.IsReading)
                 {
+                    clientState.IsReading = false;
+
+                    bool continueRead = false;
+
+                    try
+                    {
+                        continueRead = ShouldContinueReading(clientState);
+                    }
+                    catch (ProtocolViolationException e)
+                    {
+                        Console.WriteLine(e);
+                        DropRequest(clientState);
+                    }
+
+                    if (continueRead)
+                    {
+                        ReadAsync(clientState);
+                    }
+                    else
+                    {
+                        clientState.IsRendering = true;
+
+                        // put back in queue
+                        _clients.Enqueue(clientState);
+
+                        KickWorkers();
+                    }
+                }
+                else if (clientState.IsWriting)
+                {
+                    clientState.IsWriting = false;
+
+                    long bytesToSend = clientState.OutStream.Length;
+                    long bytesSent = clientState.OutStream.Position;
+
+                    if (bytesToSend > bytesSent)
+                    {
+                        WriteAsync(clientState);
+                    }
+                    else
+                    {
+                        if (clientState.KeepAlive)
+                        {
+                            clientState.HeaderLength = -1;
+                            clientState.ContentLength = -1;
+                            clientState.InStream.Position = 0;
+                            clientState.InStream.SetLength(0);
+
+                            clientState.IsKeepingAlive = true;
+
+                            _clients.Enqueue(clientState);
+                            KickWorkers();
+                        }
+                        else
+                        {
+                            using (clientState.Socket)
+                            {
+                                clientState.Socket.Shutdown(SocketShutdown.Both);
+                                clientState.Socket.Close();
+                            }
+                        }
+                    }
+                }
+                else if (clientState.IsKeepingAlive)
+                {
+                    clientState.IsKeepingAlive = false;
+
                     ReadAsync(clientState);
                 }
-                else
+                else if (clientState.IsRendering)
                 {
+                    clientState.IsRendering = false;
+
                     HttpResponse response = OnRequestAccepted(clientState);
 
                     if (response == null)
@@ -119,7 +191,16 @@ namespace Niob
                     clientState.OutStream.Flush();
                     clientState.OutStream.Seek(0, SeekOrigin.Begin);
 
-                    WriteAsync(clientState);
+                    clientState.IsWriting = true;
+
+                    // put back in queue
+                    _clients.Enqueue(clientState);
+                    KickWorkers();
+                }
+                else
+                {
+                    Console.WriteLine("Unknown state.");
+                    DropRequest(clientState);
                 }
             }
         }
@@ -173,34 +254,11 @@ namespace Niob
                 return;
             }
 
-            long bytesToSend = clientState.OutStream.Length;
-            long bytesSent = clientState.OutStream.Position;
+            clientState.IsWriting = true;
 
-            if (bytesToSend > bytesSent)
-            {
-                WriteAsync(clientState);
-            }
-            else
-            {
-                if (clientState.KeepAlive)
-                {
-                    clientState.HeaderLength = -1;
-                    clientState.ContentLength = -1;
-                    clientState.InStream.Position = 0;
-                    clientState.InStream.SetLength(0);
-
-                    _clients.Enqueue(clientState);
-                    KickWorkers();
-                }
-                else
-                {
-                    using (clientState.Socket)
-                    {
-                        clientState.Socket.Shutdown(SocketShutdown.Both);
-                        clientState.Socket.Close();
-                    }
-                }
-            }
+            // put back in queue
+            _clients.Enqueue(clientState);
+            KickWorkers();
         }
 
         private void ReadCallback(IAsyncResult ar)
@@ -224,30 +282,11 @@ namespace Niob
             // copy to stream
             clientState.InStream.Write(clientState.InBuffer, 0, inBytes);
 
-            bool continueRead;
+            clientState.IsReading = true;
 
-            try
-            {
-                continueRead = ShouldContinueReading(clientState);
-            }
-            catch (ProtocolViolationException e)
-            {
-                Console.WriteLine(e);
-                DropRequest(clientState);
-                return;
-            }
-
-            if (continueRead)
-            {
-                ReadAsync(clientState);
-            }
-            else
-            {
-                // put back in queue
-                _clients.Enqueue(clientState);
-
-                KickWorkers();
-            }
+            // put back in queue
+            _clients.Enqueue(clientState);
+            KickWorkers();
         }
 
         private static void DropRequest(ClientState clientState)
