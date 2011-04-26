@@ -95,7 +95,11 @@ namespace Niob
                     continue;
                 }
 
-                if (clientState.IsReading)
+                if (!clientState.IsReady)
+                {
+                    clientState.AsyncInitialize(EnqueueAndKickWorkers);
+                }
+                else if (clientState.IsReading)
                 {
                     clientState.IsReading = false;
 
@@ -146,9 +150,9 @@ namespace Niob
                         }
                         else
                         {
-                            using (clientState.Stream)
+                            using (clientState)
                             {
-                                clientState.Stream.Close();
+                                // end.
                             }
                         }
                     }
@@ -273,9 +277,8 @@ namespace Niob
         {
             try
             {
-                using (clientState.Stream)
+                using (clientState)
                 {
-                    clientState.Stream.Close();
                 }
             }
             catch (Exception e)

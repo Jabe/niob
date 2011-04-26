@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 
 namespace Niob.Example
@@ -16,6 +17,7 @@ namespace Niob.Example
             var niob = new Niob();
 
             niob.Bindings.Add(IPAddress.Loopback, 666);
+            //niob.Bindings.Add(IPAddress.Loopback, 666, true, new X509Certificate2(@"niob.cer"));
 
             niob.RequestAccepted += HandleRequest;
 
