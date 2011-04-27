@@ -17,10 +17,14 @@ namespace Niob
         public const int OutBufferSize = 0x1000;
         public const int TcpBackLogSize = 0x20;
 
+        private static readonly object WatchlistLock = new object();
+        private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(5);
+
         private readonly List<Binding> _bindings = new List<Binding>();
         private readonly ConcurrentQueue<ClientState> _clients = new ConcurrentQueue<ClientState>();
 
         private readonly AutoResetEvent _event = new AutoResetEvent(false);
+        private readonly List<ClientState> _timeoutWatch = new List<ClientState>();
 
         public List<Binding> Bindings
         {
@@ -42,7 +46,7 @@ namespace Niob
 
             foreach (Binding binding in Bindings)
             {
-                var listener = new Thread(ListenerThread) {IsBackground = true};
+                var listener = new Thread(BindingThread) {IsBackground = true};
 
                 listener.Start(binding);
             }
@@ -59,7 +63,7 @@ namespace Niob
             _event.Set();
         }
 
-        private void ListenerThread(object state)
+        private void BindingThread(object state)
         {
             var binding = (Binding) state;
 
@@ -68,14 +72,50 @@ namespace Niob
             socket.Bind(new IPEndPoint(binding.IpAddress, binding.Port));
             socket.Listen(TcpBackLogSize);
 
+            // get it going initally
+            socket.BeginAccept(AcceptCallback, Tuple.Create(socket, binding));
+
             while (true)
             {
-                Socket client = socket.Accept();
+                Thread.Sleep(1000);
 
-                var clientState = new ClientState(client, binding) {IsReading = true};
+                long threshold = GetTimestamp() - Timeout.Ticks;
 
-                EnqueueAndKickWorkers(clientState);
+                var clientsToDrop = new List<ClientState>();
+
+                // check sockets for timeouts.
+                lock (WatchlistLock)
+                {
+                    for (int i = _timeoutWatch.Count - 1; i >= 0; i--)
+                    {
+                        ClientState clientState = _timeoutWatch[i];
+
+                        if (clientState.LastActivity < threshold)
+                        {
+                            _timeoutWatch.RemoveAt(i);
+                            clientsToDrop.Add(clientState);
+                        }
+                    }
+                }
+
+                foreach (ClientState client in clientsToDrop)
+                {
+                    DropRequest(client);
+                }
             }
+        }
+
+        private void AcceptCallback(IAsyncResult ar)
+        {
+            var tuple = (Tuple<Socket, Binding>) ar.AsyncState;
+
+            // again
+            tuple.Item1.BeginAccept(AcceptCallback, tuple);
+
+            Socket socket = tuple.Item1.EndAccept(ar);
+
+            var clientState = new ClientState(socket, tuple.Item2) {IsReading = true};
+            EnqueueAndKickWorkers(clientState);
         }
 
         private void WorkerThread()
@@ -216,6 +256,7 @@ namespace Niob
 
         private void ReadAsync(ClientState clientState)
         {
+            AddToWatchlist(clientState);
             clientState.Stream.BeginRead(clientState.InBuffer, 0, clientState.InBuffer.Length, ReadCallback, clientState);
         }
 
@@ -227,12 +268,17 @@ namespace Niob
             var size = (int) Math.Min(bytesToSend - bytesSent, OutBufferSize);
 
             clientState.OutStream.Read(clientState.OutBuffer, 0, size);
+
+            AddToWatchlist(clientState);
             clientState.Stream.BeginWrite(clientState.OutBuffer, 0, size, WriteCallback, clientState);
         }
 
         private void WriteCallback(IAsyncResult ar)
         {
             var clientState = (ClientState) ar.AsyncState;
+
+            if (clientState.Disposed)
+                return;
 
             try
             {
@@ -244,6 +290,13 @@ namespace Niob
                 DropRequest(clientState);
                 return;
             }
+            catch (ObjectDisposedException e)
+            {
+                Console.WriteLine(e);
+                return;
+            }
+
+            RemoveFromWatchlist(clientState);
 
             clientState.IsWriting = true;
             EnqueueAndKickWorkers(clientState);
@@ -252,6 +305,9 @@ namespace Niob
         private void ReadCallback(IAsyncResult ar)
         {
             var clientState = (ClientState) ar.AsyncState;
+
+            if (clientState.Disposed)
+                return;
 
             int inBytes;
 
@@ -265,9 +321,24 @@ namespace Niob
                 DropRequest(clientState);
                 return;
             }
+            catch (ObjectDisposedException e)
+            {
+                Console.WriteLine(e);
+                return;
+            }
 
-            // copy to stream
-            clientState.InStream.Write(clientState.InBuffer, 0, inBytes);
+            RemoveFromWatchlist(clientState);
+
+            try
+            {
+                // copy to stream
+                clientState.InStream.Write(clientState.InBuffer, 0, inBytes);
+            }
+            catch (ObjectDisposedException e)
+            {
+                Console.WriteLine(e);
+                return;
+            }
 
             clientState.IsReading = true;
             EnqueueAndKickWorkers(clientState);
@@ -405,6 +476,29 @@ namespace Niob
             }
 
             return continueRead;
+        }
+
+        private static long GetTimestamp()
+        {
+            return DateTimeOffset.UtcNow.Ticks;
+        }
+
+        private void AddToWatchlist(ClientState clientState)
+        {
+            clientState.LastActivity = GetTimestamp();
+
+            lock (WatchlistLock)
+            {
+                _timeoutWatch.Add(clientState);
+            }
+        }
+
+        private void RemoveFromWatchlist(ClientState clientState)
+        {
+            lock (WatchlistLock)
+            {
+                _timeoutWatch.Remove(clientState);
+            }
         }
     }
 }

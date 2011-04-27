@@ -9,6 +9,7 @@ namespace Niob
     public class ClientState : IDisposable
     {
         private readonly Socket _socket;
+        private bool _disposed;
         private byte[] _inBuffer;
         private MemoryStream _inStream;
         private NetworkStream _networkStream;
@@ -58,6 +59,13 @@ namespace Niob
         public bool IsKeepingAlive { get; set; }
         public bool IsRendering { get; set; }
 
+        public long LastActivity { get; set; }
+
+        public bool Disposed
+        {
+            get { return _disposed; }
+        }
+
         #region IDisposable Members
 
         public void Dispose()
@@ -68,6 +76,8 @@ namespace Niob
             {
                 _networkStream.Close();
             }
+
+            _disposed = true;
         }
 
         #endregion
