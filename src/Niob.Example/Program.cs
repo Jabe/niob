@@ -23,8 +23,12 @@ namespace Niob.Example
 
             niob.Start();
 
-            Console.WriteLine("started");
+            Console.WriteLine("started... press enter to stop");
             Console.ReadLine();
+
+            Console.WriteLine("stopping");
+            niob.Stop();
+            Console.WriteLine("stopped");
         }
 
         private static void HandleRequest(object sender, RequestEventArgs e)

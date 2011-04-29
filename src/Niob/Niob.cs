@@ -10,7 +10,7 @@ using System.Threading;
 
 namespace Niob
 {
-    public class Niob
+    public class Niob : IDisposable
     {
         public const int MaxHeaderSize = 0x2000;
         public const int InBufferSize = 0x1000;
@@ -22,14 +22,30 @@ namespace Niob
 
         private readonly List<Binding> _bindings = new List<Binding>();
         private readonly ConcurrentQueue<ClientState> _clients = new ConcurrentQueue<ClientState>();
+        private readonly ConcurrentBag<Socket> _listeningSockets = new ConcurrentBag<Socket>();
 
-        private readonly AutoResetEvent _event = new AutoResetEvent(false);
+        private readonly ManualResetEvent _stopping = new ManualResetEvent(false);
         private readonly List<ClientState> _timeoutWatch = new List<ClientState>();
+        private readonly AutoResetEvent _workPending = new AutoResetEvent(false);
+
+        private readonly List<Thread> _workerThreads = new List<Thread>();
 
         public List<Binding> Bindings
         {
             get { return _bindings; }
         }
+
+        #region IDisposable Members
+
+        public void Dispose()
+        {
+            if (!_stopping.WaitOne(0))
+            {
+                Stop();
+            }
+        }
+
+        #endregion
 
         public event EventHandler<RequestEventArgs> RequestAccepted;
 
@@ -40,6 +56,8 @@ namespace Niob
             for (int i = 0; i < count; i++)
             {
                 var worker = new Thread(WorkerThread) {IsBackground = true};
+
+                _workerThreads.Add(worker);
 
                 worker.Start();
             }
@@ -60,7 +78,7 @@ namespace Niob
 
         private void KickWorkers()
         {
-            _event.Set();
+            _workPending.Set();
         }
 
         private void BindingThread(object state)
@@ -68,6 +86,8 @@ namespace Niob
             var binding = (Binding) state;
 
             var socket = new Socket(binding.IpAddress.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+
+            _listeningSockets.Add(socket);
 
             socket.Bind(new IPEndPoint(binding.IpAddress, binding.Port));
             socket.Listen(TcpBackLogSize);
@@ -109,10 +129,21 @@ namespace Niob
         {
             var tuple = (Tuple<Socket, Binding>) ar.AsyncState;
 
-            // again
-            tuple.Item1.BeginAccept(AcceptCallback, tuple);
+            try
+            {
+                // again
+                tuple.Item1.BeginAccept(AcceptCallback, tuple);
+            }
+            catch (ObjectDisposedException)
+            {
+                // listening socket was closed
+                return;
+            }
 
-            Socket socket = tuple.Item1.EndAccept(ar);
+            Socket socket;
+
+            // the client
+            socket = tuple.Item1.EndAccept(ar);
 
             var clientState = new ClientState(socket, tuple.Item2) {IsReading = true};
             EnqueueAndKickWorkers(clientState);
@@ -121,7 +152,7 @@ namespace Niob
         private void WorkerThread()
         {
             // Scan queue
-            while (true)
+            while (!_stopping.WaitOne(0))
             {
                 ClientState clientState;
 
@@ -129,9 +160,9 @@ namespace Niob
 
                 if (clientState == null)
                 {
-                    const int maxIdleTime = 10000;
+                    const int maxIdleTime = 1000;
 
-                    _event.WaitOne(maxIdleTime);
+                    _workPending.WaitOne(maxIdleTime);
                     continue;
                 }
 
@@ -499,6 +530,49 @@ namespace Niob
             {
                 _timeoutWatch.Remove(clientState);
             }
+        }
+
+        public void Stop()
+        {
+            _stopping.Set();
+
+            while (!_listeningSockets.IsEmpty)
+            {
+                Socket socket;
+
+                _listeningSockets.TryTake(out socket);
+
+                using (socket)
+                {
+                    socket.Close();
+                }
+            }
+
+            while (!_clients.IsEmpty)
+            {
+                ClientState state;
+
+                _clients.TryDequeue(out state);
+
+                DropRequest(state);
+            }
+
+            lock (WatchlistLock)
+            {
+                foreach (ClientState client in _timeoutWatch)
+                {
+                    DropRequest(client);
+                }
+
+                _timeoutWatch.Clear();
+            }
+
+            foreach (Thread thread in _workerThreads)
+            {
+                thread.Join();
+            }
+
+            _workerThreads.Clear();
         }
     }
 }
