@@ -72,7 +72,7 @@ namespace Niob
             }
         }
 
-        private void EnqueueAndKickWorkers(ClientState clientState)
+        internal void EnqueueAndKickWorkers(ClientState clientState)
         {
             _clients.Enqueue(clientState);
             KickWorkers();
@@ -145,7 +145,7 @@ namespace Niob
             // the client
             Socket socket = tuple.Item1.EndAccept(ar);
 
-            var clientState = new ClientState(socket, tuple.Item2) {IsReading = true};
+            var clientState = new ClientState(socket, tuple.Item2, this) {IsReading = true};
             EnqueueAndKickWorkers(clientState);
         }
 
@@ -242,6 +242,10 @@ namespace Niob
                     clientState.Response = new HttpResponse(clientState);
 
                     OnRequestAccepted(clientState);
+                }
+                else if (clientState.IsPostRendering)
+                {
+                    clientState.IsPostRendering = false;
 
                     clientState.OutStream = new MemoryStream();
                     clientState.Response.WriteHeaders(clientState.OutStream);

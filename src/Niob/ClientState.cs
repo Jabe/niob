@@ -10,6 +10,7 @@ namespace Niob
     public class ClientState : IDisposable
     {
         private readonly Socket _socket;
+        private readonly Niob _server;
         private bool _disposed;
         private byte[] _inBuffer;
         private MemoryStream _inStream;
@@ -19,9 +20,10 @@ namespace Niob
         private readonly List<string> _requestHeaderLines = new List<string>();
         private readonly List<KeyValuePair<string, string>> _requestHeaders = new List<KeyValuePair<string, string>>();
 
-        public ClientState(Socket socket, Binding binding)
+        public ClientState(Socket socket, Binding binding, Niob server)
         {
             _socket = socket;
+            _server = server;
             Binding = binding;
 
             HeaderLength = -1;
@@ -61,6 +63,7 @@ namespace Niob
         public bool IsWriting { get; set; }
         public bool IsKeepingAlive { get; set; }
         public bool IsRendering { get; set; }
+        public bool IsPostRendering { get; set; }
 
         public long LastActivity { get; set; }
 
@@ -81,6 +84,11 @@ namespace Niob
 
         public HttpRequest Request { get; set; }
         public HttpResponse Response { get; set; }
+
+        public Niob Server
+        {
+            get { return _server; }
+        }
 
         #region IDisposable Members
 

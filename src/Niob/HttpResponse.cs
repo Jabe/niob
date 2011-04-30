@@ -92,5 +92,11 @@ namespace Niob
             writer.Write("\r\n");
             writer.Flush();
         }
+
+        public void Send()
+        {
+            _clientState.IsPostRendering = true;
+            _clientState.Server.EnqueueAndKickWorkers(_clientState);
+        }
     }
 }
