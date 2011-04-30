@@ -12,6 +12,7 @@ namespace Niob
             string sign = (Math.Sign(ticks) == -1) ? "-" : "";
 
             ticks = Math.Abs(ticks);
+            span = new TimeSpan(ticks);
 
             if (ticks >= TimeSpan.TicksPerMinute)
                 result = span.ToString(@"hh\:mm\:ss");
