@@ -68,6 +68,31 @@ namespace Niob
 
                 i++;
             }
+
+            if (_clientState.ContentLength >= 0)
+            {
+                int contentStart = _clientState.HeaderLength + 2;
+                int length = (int) _clientState.InStream.Length - contentStart;
+                _clientState.Request.ContentStream =
+                    new MemoryStream(_clientState.InStream.ToArray(), contentStart, length);
+            }
+
+            string contentTypeHeader;
+
+            if (Headers.TryGetValue("Content-Type", out contentTypeHeader))
+            {
+                string[] parts = contentTypeHeader.Split(new[] {';'}, 2);
+
+                if (parts.Length >= 1)
+                {
+                    ContentType = parts[0].Trim();
+                }
+
+                if (parts.Length >= 2 && parts[1].IndexOf("charset=", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    ContentCharSet = parts[1].Replace("charset=", "").Trim();
+                }
+            }
         }
     }
 }
