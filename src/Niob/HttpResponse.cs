@@ -9,17 +9,15 @@ namespace Niob
     {
         private readonly ClientState _clientState;
 
-        private List<Tuple<string, string>> _headers;
+        private List<KeyValuePair<string, string>> _headers;
 
         public HttpResponse(ClientState clientState)
         {
             _clientState = clientState;
 
-            Version = HttpVersion.Http11;
+            Version = HttpVersion.Http10;
             StatusCode = 501;
             StatusText = "Not Implemented";
-
-            Version = HttpVersion.Http11;
         }
 
         public HttpVersion Version { get; set; }
@@ -30,9 +28,9 @@ namespace Niob
         public string ContentType { get; set; }
         public string ContentCharSet { get; set; }
 
-        public IList<Tuple<string, string>> Headers
+        public IList<KeyValuePair<string, string>> Headers
         {
-            get { return _headers ?? (_headers = new List<Tuple<string, string>>()); }
+            get { return _headers ?? (_headers = new List<KeyValuePair<string, string>>()); }
         }
 
         public void WriteHeaders(Stream stream)
@@ -77,7 +75,7 @@ namespace Niob
                 writer.Write("Connection: keep-alive");
                 writer.Write("\r\n");
             }
-            else if (Version != HttpVersion.Http10)
+            else
             {
                 writer.Write("Connection: close");
                 writer.Write("\r\n");
@@ -85,9 +83,9 @@ namespace Niob
 
             foreach (var header in Headers)
             {
-                writer.Write(header.Item1);
+                writer.Write(header.Key);
                 writer.Write(": ");
-                writer.Write(header.Item2);
+                writer.Write(header.Value);
                 writer.Write("\r\n");
             }
 

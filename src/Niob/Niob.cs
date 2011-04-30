@@ -6,6 +6,7 @@ using System.Linq;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading;
 
 namespace Niob
@@ -19,6 +20,7 @@ namespace Niob
 
         private static readonly object WatchlistLock = new object();
         private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(5);
+        private static readonly Regex HeaderLineMerge = new Regex(@"\r\n[ \t]+");
 
         private readonly List<Binding> _bindings = new List<Binding>();
         private readonly ConcurrentQueue<ClientState> _clients = new ConcurrentQueue<ClientState>();
@@ -140,10 +142,8 @@ namespace Niob
                 return;
             }
 
-            Socket socket;
-
             // the client
-            socket = tuple.Item1.EndAccept(ar);
+            Socket socket = tuple.Item1.EndAccept(ar);
 
             var clientState = new ClientState(socket, tuple.Item2) {IsReading = true};
             EnqueueAndKickWorkers(clientState);
@@ -185,6 +185,11 @@ namespace Niob
                         Console.WriteLine(e);
                         DropRequest(clientState);
                     }
+                    catch (Exception e)
+                    {
+                        Console.WriteLine(e);
+                        DropRequest(clientState);
+                    }
 
                     if (continueRead)
                     {
@@ -211,10 +216,7 @@ namespace Niob
                     {
                         if (clientState.KeepAlive)
                         {
-                            clientState.HeaderLength = -1;
-                            clientState.ContentLength = -1;
-                            clientState.InStream.Position = 0;
-                            clientState.InStream.SetLength(0);
+                            clientState.Clear();
 
                             clientState.IsKeepingAlive = true;
                             EnqueueAndKickWorkers(clientState);
@@ -237,22 +239,16 @@ namespace Niob
                 else if (clientState.IsRendering)
                 {
                     clientState.IsRendering = false;
+                    clientState.Response = new HttpResponse(clientState);
 
-                    HttpResponse response = OnRequestAccepted(clientState);
-
-                    if (response == null)
-                    {
-                        // no handler
-                        response = new HttpResponse(clientState);
-                    }
+                    OnRequestAccepted(clientState);
 
                     clientState.OutStream = new MemoryStream();
+                    clientState.Response.WriteHeaders(clientState.OutStream);
 
-                    response.WriteHeaders(clientState.OutStream);
-
-                    if (response.ContentStream != null)
+                    if (clientState.Response.ContentStream != null)
                     {
-                        response.ContentStream.CopyTo(clientState.OutStream);
+                        clientState.Response.ContentStream.CopyTo(clientState.OutStream);
                     }
 
                     clientState.OutStream.Flush();
@@ -269,7 +265,7 @@ namespace Niob
             }
         }
 
-        private HttpResponse OnRequestAccepted(ClientState clientState)
+        private void OnRequestAccepted(ClientState clientState)
         {
             EventHandler<RequestEventArgs> handler = RequestAccepted;
 
@@ -278,17 +274,21 @@ namespace Niob
                 var eventArgs = new RequestEventArgs(clientState);
 
                 handler(this, eventArgs);
-
-                return eventArgs.Response;
             }
-
-            return null;
         }
 
         private void ReadAsync(ClientState clientState)
         {
             AddToWatchlist(clientState);
-            clientState.Stream.BeginRead(clientState.InBuffer, 0, clientState.InBuffer.Length, ReadCallback, clientState);
+
+            try
+            {
+                clientState.Stream.BeginRead(clientState.InBuffer, 0, clientState.InBuffer.Length, ReadCallback, clientState);
+            }
+            catch (ObjectDisposedException)
+            {
+                DropRequest(clientState);
+            }
         }
 
         private void WriteAsync(ClientState clientState)
@@ -301,7 +301,16 @@ namespace Niob
             clientState.OutStream.Read(clientState.OutBuffer, 0, size);
 
             AddToWatchlist(clientState);
-            clientState.Stream.BeginWrite(clientState.OutBuffer, 0, size, WriteCallback, clientState);
+
+            try
+            {
+                clientState.Stream.BeginWrite(clientState.OutBuffer, 0, size, WriteCallback, clientState);
+            }
+            catch (ObjectDisposedException)
+            {
+                DropRequest(clientState);
+                return;
+            }
         }
 
         private void WriteCallback(IAsyncResult ar)
@@ -315,15 +324,14 @@ namespace Niob
             {
                 clientState.Stream.EndWrite(ar);
             }
-            catch (IOException e)
+            catch (IOException)
             {
-                Console.WriteLine(e);
                 DropRequest(clientState);
                 return;
             }
-            catch (ObjectDisposedException e)
+            catch (ObjectDisposedException)
             {
-                Console.WriteLine(e);
+                DropRequest(clientState);
                 return;
             }
 
@@ -346,15 +354,14 @@ namespace Niob
             {
                 inBytes = clientState.Stream.EndRead(ar);
             }
-            catch (IOException e)
+            catch (IOException)
             {
-                Console.WriteLine(e);
                 DropRequest(clientState);
                 return;
             }
-            catch (ObjectDisposedException e)
+            catch (ObjectDisposedException)
             {
-                Console.WriteLine(e);
+                DropRequest(clientState);
                 return;
             }
 
@@ -365,9 +372,9 @@ namespace Niob
                 // copy to stream
                 clientState.InStream.Write(clientState.InBuffer, 0, inBytes);
             }
-            catch (ObjectDisposedException e)
+            catch (ObjectDisposedException)
             {
-                Console.WriteLine(e);
+                DropRequest(clientState);
                 return;
             }
 
@@ -396,20 +403,22 @@ namespace Niob
             // check if we got the complete header
             if (clientState.HeaderLength == -1)
             {
-                // get current header
-                byte[] headerBytes = clientState.InStream.ToArray();
-
                 int headerLength = -1;
                 int contentLength = -1;
                 bool keepAlive = true;
 
-                for (int i = headerBytes.Length - 4; i >= 0; i--)
+                byte[] headerBytes = clientState.InStream.ToArray();
+
+                if (headerBytes.Length >= 4)
                 {
-                    if (headerBytes[i + 0] == '\r' && headerBytes[i + 1] == '\n' &&
-                        headerBytes[i + 2] == '\r' && headerBytes[i + 3] == '\n')
+                    for (int i = headerBytes.Length - 4; i >= Math.Max(0, headerBytes.Length - InBufferSize - 4); i--)
                     {
-                        headerLength = i + 2;
-                        break;
+                        if (headerBytes[i + 0] == '\r' && headerBytes[i + 1] == '\n' &&
+                            headerBytes[i + 2] == '\r' && headerBytes[i + 3] == '\n')
+                        {
+                            headerLength = i + 2;
+                            break;
+                        }
                     }
                 }
 
@@ -427,53 +436,34 @@ namespace Niob
                 }
                 else
                 {
-                    // TODO better parsing
+                    clientState.Request = new HttpRequest(clientState);
 
                     // header found. read the content-length http header
                     // to determine if we should continue reading.
                     string header = Encoding.ASCII.GetString(headerBytes, 0, headerLength);
 
-                    // TODO: this sucks
-                    if (header.Contains("HTTP/1.0\r\n"))
+                    // merge continuations
+                    header = HeaderLineMerge.Replace(header, "");
+
+                    string[] lines = header.Split(new[] {"\r\n"}, StringSplitOptions.RemoveEmptyEntries);
+
+                    clientState.Request.ReadHeader(lines);
+
+                    string contentLengthHeader;
+
+                    if (clientState.Request.Headers.TryGetValue("Content-Length", out contentLengthHeader))
                     {
-                        keepAlive = false;
-                    }
-
-                    const string clMatch = "\r\nContent-Length: ";
-
-                    int clIndex = header.IndexOf(clMatch, StringComparison.OrdinalIgnoreCase);
-
-                    if (clIndex >= 0)
-                    {
-                        // cl header found.
-
-                        int crIndex = header.IndexOf('\r', clIndex + clMatch.Length);
-                        int startIndex = clIndex + clMatch.Length;
-                        int length = crIndex - startIndex;
-
-                        string number = header.Substring(startIndex, length);
-
-                        if (!int.TryParse(number, out contentLength))
+                        if (!int.TryParse(contentLengthHeader, out contentLength))
                         {
                             contentLength = -1;
                         }
                     }
 
-                    const string coMatch = "\r\nConnection: ";
+                    string connectionHeader;
 
-                    int coIndex = header.IndexOf(coMatch, StringComparison.OrdinalIgnoreCase);
-
-                    if (coIndex >= 0)
+                    if (clientState.Request.Headers.TryGetValue("connection", out connectionHeader))
                     {
-                        // connection header found.
-
-                        int crIndex = header.IndexOf('\r', coIndex + coMatch.Length);
-                        int startIndex = coIndex + coMatch.Length;
-                        int length = crIndex - startIndex;
-
-                        string mode = header.Substring(startIndex, length);
-
-                        if (StringComparer.OrdinalIgnoreCase.Compare(mode, "keep-alive") != 0)
+                        if (StringComparer.OrdinalIgnoreCase.Compare(connectionHeader, "keep-alive") != 0)
                         {
                             keepAlive = false;
                         }

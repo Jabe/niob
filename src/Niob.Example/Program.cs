@@ -35,7 +35,7 @@ namespace Niob.Example
         {
             e.Response.StatusCode = 200;
             e.Response.StatusText = "kay";
-            e.Response.Version = HttpVersion.Http11;
+            e.Response.Version = HttpVersion.Http10;
 
             e.Response.ContentType = "application/json";
             e.Response.ContentCharSet = "utf-8";

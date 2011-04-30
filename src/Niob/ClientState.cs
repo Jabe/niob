@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Net.Security;
 using System.Net.Sockets;
@@ -15,6 +16,8 @@ namespace Niob
         private NetworkStream _networkStream;
         private byte[] _outBuffer;
         private SslStream _tlsStream;
+        private readonly List<string> _requestHeaderLines = new List<string>();
+        private readonly List<KeyValuePair<string, string>> _requestHeaders = new List<KeyValuePair<string, string>>();
 
         public ClientState(Socket socket, Binding binding)
         {
@@ -66,6 +69,19 @@ namespace Niob
             get { return _disposed; }
         }
 
+        public List<string> RequestHeaderLines
+        {
+            get { return _requestHeaderLines; }
+        }
+
+        public List<KeyValuePair<string, string>> RequestHeaders
+        {
+            get { return _requestHeaders; }
+        }
+
+        public HttpRequest Request { get; set; }
+        public HttpResponse Response { get; set; }
+
         #region IDisposable Members
 
         public void Dispose()
@@ -116,6 +132,18 @@ namespace Niob
 
             IsReady = true;
             onSuccess(this);
+        }
+
+        public void Clear()
+        {
+            HeaderLength = -1;
+            ContentLength = -1;
+            RequestHeaders.Clear();
+            RequestHeaderLines.Clear();
+            InStream.Position = 0;
+            InStream.SetLength(0);
+            Request = null;
+            Response = null;
         }
     }
 }

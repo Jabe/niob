@@ -4,11 +4,21 @@ namespace Niob
 {
     public class RequestEventArgs : EventArgs
     {
+        private readonly ClientState _clientState;
+
         public RequestEventArgs(ClientState clientState)
         {
-            Response = new HttpResponse(clientState);
+            _clientState = clientState;
         }
 
-        public HttpResponse Response { get; private set; }
+        public HttpRequest Request
+        {
+            get { return _clientState.Request; }
+        }
+
+        public HttpResponse Response
+        {
+            get { return _clientState.Response; }
+        }
     }
 }
