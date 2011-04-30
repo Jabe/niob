@@ -9,7 +9,7 @@ namespace Niob
     {
         private readonly ClientState _clientState;
 
-        private List<KeyValuePair<string, string>> _headers;
+        private IDictionary<string, string> _headers;
 
         public HttpResponse(ClientState clientState)
         {
@@ -28,9 +28,9 @@ namespace Niob
         public string ContentType { get; set; }
         public string ContentCharSet { get; set; }
 
-        public IList<KeyValuePair<string, string>> Headers
+        public IDictionary<string, string> Headers
         {
-            get { return _headers ?? (_headers = new List<KeyValuePair<string, string>>()); }
+            get { return _headers ?? (_headers = new Dictionary<string, string>()); }
         }
 
         public void WriteHeaders(Stream stream)
