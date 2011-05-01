@@ -166,107 +166,124 @@ namespace Niob
                     continue;
                 }
 
-                if (!clientState.IsReady)
+                WorkerThreadImpl(clientState);
+            }
+        }
+
+        private string WorkerThreadImpl(ClientState clientState)
+        {
+            if (!clientState.IsReady)
+            {
+                clientState.AsyncInitialize(EnqueueAndKickWorkers);
+                return "AsyncInitialize";
+            }
+
+            if (clientState.IsReading)
+            {
+                clientState.IsReading = false;
+
+                bool continueRead = false;
+
+                try
                 {
-                    clientState.AsyncInitialize(EnqueueAndKickWorkers);
+                    continueRead = ShouldContinueReading(clientState);
                 }
-                else if (clientState.IsReading)
+                catch (ProtocolViolationException e)
                 {
-                    clientState.IsReading = false;
-
-                    bool continueRead = false;
-
-                    try
-                    {
-                        continueRead = ShouldContinueReading(clientState);
-                    }
-                    catch (ProtocolViolationException e)
-                    {
-                        Console.WriteLine(e);
-                        DropRequest(clientState);
-                    }
-                    catch (Exception e)
-                    {
-                        Console.WriteLine(e);
-                        DropRequest(clientState);
-                    }
-
-                    if (continueRead)
-                    {
-                        ReadAsync(clientState);
-                    }
-                    else
-                    {
-                        clientState.IsRendering = true;
-                        EnqueueAndKickWorkers(clientState);
-                    }
-                }
-                else if (clientState.IsWriting)
-                {
-                    clientState.IsWriting = false;
-
-                    long bytesToSend = clientState.OutStream.Length;
-                    long bytesSent = clientState.OutStream.Position;
-
-                    if (bytesToSend > bytesSent)
-                    {
-                        WriteAsync(clientState);
-                    }
-                    else
-                    {
-                        if (clientState.KeepAlive)
-                        {
-                            clientState.Clear();
-
-                            clientState.IsKeepingAlive = true;
-                            EnqueueAndKickWorkers(clientState);
-                        }
-                        else
-                        {
-                            using (clientState)
-                            {
-                                // end.
-                            }
-                        }
-                    }
-                }
-                else if (clientState.IsKeepingAlive)
-                {
-                    clientState.IsKeepingAlive = false;
-
-                    ReadAsync(clientState);
-                }
-                else if (clientState.IsRendering)
-                {
-                    clientState.IsRendering = false;
-                    clientState.Response = new HttpResponse(clientState);
-
-                    OnRequestAccepted(clientState);
-                }
-                else if (clientState.IsPostRendering)
-                {
-                    clientState.IsPostRendering = false;
-
-                    clientState.OutStream = new MemoryStream();
-                    clientState.Response.WriteHeaders(clientState.OutStream);
-
-                    if (clientState.Response.ContentStream != null)
-                    {
-                        clientState.Response.ContentStream.CopyTo(clientState.OutStream);
-                    }
-
-                    clientState.OutStream.Flush();
-                    clientState.OutStream.Seek(0, SeekOrigin.Begin);
-
-                    clientState.IsWriting = true;
-                    EnqueueAndKickWorkers(clientState);
-                }
-                else
-                {
-                    Console.WriteLine("Unknown state.");
+                    Console.WriteLine(e);
                     DropRequest(clientState);
                 }
+                catch (Exception e)
+                {
+                    Console.WriteLine(e);
+                    DropRequest(clientState);
+                }
+
+                if (continueRead)
+                {
+                    ReadAsync(clientState);
+                    return "IsReading -> ReadAsync";
+                }
+
+                clientState.IsRendering = true;
+                EnqueueAndKickWorkers(clientState);
+
+                return "IsReading -> IsRendering";
             }
+
+            if (clientState.IsWriting)
+            {
+                clientState.IsWriting = false;
+
+                long bytesToSend = clientState.OutStream.Length;
+                long bytesSent = clientState.OutStream.Position;
+
+                if (bytesToSend > bytesSent)
+                {
+                    WriteAsync(clientState);
+                    return "IsWriting -> WriteAsync";
+                }
+
+                if (clientState.KeepAlive)
+                {
+                    clientState.Clear();
+
+                    clientState.IsKeepingAlive = true;
+                    EnqueueAndKickWorkers(clientState);
+
+                    return "IsWriting -> IsKeepingAlive";
+                }
+
+                using (clientState)
+                {
+                    // end.
+                    return "IsWriting -> end";
+                }
+            }
+
+            if (clientState.IsKeepingAlive)
+            {
+                clientState.IsKeepingAlive = false;
+                ReadAsync(clientState);
+
+                return "IsKeepingAlive -> ReadAsync";
+            }
+
+            if (clientState.IsRendering)
+            {
+                clientState.IsRendering = false;
+                clientState.Response = new HttpResponse(clientState);
+
+                OnRequestAccepted(clientState);
+
+                return "IsRendering -> OnRequestAccepted";
+            }
+
+            if (clientState.IsPostRendering)
+            {
+                clientState.IsPostRendering = false;
+
+                clientState.OutStream = new MemoryStream();
+                clientState.Response.WriteHeaders(clientState.OutStream);
+
+                if (clientState.Response.ContentStream != null)
+                {
+                    clientState.Response.ContentStream.CopyTo(clientState.OutStream);
+                }
+
+                clientState.OutStream.Flush();
+                clientState.OutStream.Seek(0, SeekOrigin.Begin);
+
+                clientState.IsWriting = true;
+                EnqueueAndKickWorkers(clientState);
+
+                return "IsPostRendering -> IsWriting";
+            }
+
+            Console.WriteLine("Unknown state.");
+            DropRequest(clientState);
+
+            return "Unknown -> end";
         }
 
         private void OnRequestAccepted(ClientState clientState)
@@ -302,7 +319,7 @@ namespace Niob
 
             var size = (int) Math.Min(bytesToSend - bytesSent, OutBufferSize);
 
-            clientState.OutStream.Read(clientState.OutBuffer, 0, size);
+            size = clientState.OutStream.Read(clientState.OutBuffer, 0, size);
 
             AddToWatchlist(clientState);
 
