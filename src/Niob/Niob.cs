@@ -447,7 +447,7 @@ namespace Niob
                     string header = Encoding.ASCII.GetString(headerBytes, 0, headerLength);
 
                     // merge continuations
-                    header = HeaderLineMerge.Replace(header, "");
+                    header = HeaderLineMerge.Replace(header, " ");
 
                     string[] lines = header.Split(new[] {"\r\n"}, StringSplitOptions.RemoveEmptyEntries);
 
