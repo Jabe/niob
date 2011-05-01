@@ -13,7 +13,8 @@ namespace Niob
         private readonly Niob _server;
         private bool _disposed;
         private byte[] _inBuffer;
-        private MemoryStream _inStream;
+        private MemoryStream _headerStream;
+        private MemoryStream _contentStream;
         private NetworkStream _networkStream;
         private byte[] _outBuffer;
         private SslStream _tlsStream;
@@ -42,9 +43,14 @@ namespace Niob
             get { return _inBuffer ?? (_inBuffer = new byte[Niob.InBufferSize]); }
         }
 
-        public MemoryStream InStream
+        public MemoryStream HeaderStream
         {
-            get { return _inStream ?? (_inStream = new MemoryStream()); }
+            get { return _headerStream ?? (_headerStream = new MemoryStream()); }
+        }
+
+        public MemoryStream ContentStream
+        {
+            get { return _contentStream ?? (_contentStream = new MemoryStream()); }
         }
 
         public int HeaderLength { get; set; }
@@ -94,7 +100,8 @@ namespace Niob
 
         public void Dispose()
         {
-            using (_inStream)
+            using (_headerStream)
+            using (_contentStream)
             using (_tlsStream)
             using (_networkStream)
             {
@@ -148,8 +155,8 @@ namespace Niob
             ContentLength = -1;
             RequestHeaders.Clear();
             RequestHeaderLines.Clear();
-            InStream.Position = 0;
-            InStream.SetLength(0);
+            HeaderStream.SetLength(0);
+            ContentStream.SetLength(0);
             Request = null;
             Response = null;
         }

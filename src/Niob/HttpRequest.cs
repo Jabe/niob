@@ -17,6 +17,7 @@ namespace Niob
 
         private readonly ClientState _clientState;
 
+        private ReadOnlyStream _contentStream;
         private Dictionary<string, string> _headers;
 
         public HttpRequest(ClientState clientState)
@@ -28,7 +29,11 @@ namespace Niob
         public string Uri { get; set; }
         public HttpVersion Version { get; set; }
 
-        public Stream ContentStream { get; set; }
+        public Stream ContentStream
+        {
+            get { return _contentStream ?? (_contentStream = new ReadOnlyStream(_clientState.ContentStream)); }
+        }
+
         public string ContentType { get; set; }
         public string ContentCharSet { get; set; }
 
@@ -67,14 +72,6 @@ namespace Niob
                 }
 
                 i++;
-            }
-
-            if (_clientState.ContentLength >= 0)
-            {
-                int contentStart = _clientState.HeaderLength + 2;
-                int length = (int) _clientState.InStream.Length - contentStart;
-                _clientState.Request.ContentStream =
-                    new MemoryStream(_clientState.InStream.ToArray(), contentStart, length);
             }
 
             string contentTypeHeader;

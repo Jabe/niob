@@ -390,8 +390,12 @@ namespace Niob
 
             try
             {
-                // copy to stream
-                clientState.InStream.Write(clientState.InBuffer, 0, inBytes);
+                // copy to currrent stream
+                Stream stream = (clientState.HeaderLength == -1)
+                                    ? clientState.HeaderStream
+                                    : clientState.ContentStream;
+
+                stream.Write(clientState.InBuffer, 0, inBytes);
             }
             catch (ObjectDisposedException)
             {
@@ -428,7 +432,7 @@ namespace Niob
                 int contentLength = -1;
                 bool keepAlive = true;
 
-                byte[] headerBytes = clientState.InStream.ToArray();
+                byte[] headerBytes = clientState.HeaderStream.ToArray();
 
                 if (headerBytes.Length >= 4)
                 {
@@ -437,7 +441,7 @@ namespace Niob
                         if (headerBytes[i + 0] == '\r' && headerBytes[i + 1] == '\n' &&
                             headerBytes[i + 2] == '\r' && headerBytes[i + 3] == '\n')
                         {
-                            headerLength = i + 2;
+                            headerLength = i + 4;
                             break;
                         }
                     }
@@ -457,11 +461,23 @@ namespace Niob
                 }
                 else
                 {
+                    // check if some content got on the wrong stream
+                    if (clientState.HeaderStream.Length > headerLength)
+                    {
+                        // fix it
+                        clientState.HeaderStream.Seek(headerLength, SeekOrigin.Begin);
+                        clientState.HeaderStream.CopyTo(clientState.ContentStream);
+                        clientState.HeaderStream.SetLength(headerLength);
+                    }
+
                     clientState.Request = new HttpRequest(clientState);
 
                     // header found. read the content-length http header
                     // to determine if we should continue reading.
                     string header = Encoding.ASCII.GetString(headerBytes, 0, headerLength);
+
+                    // we are done with the header
+                    clientState.HeaderStream.SetLength(0);
 
                     // merge continuations
                     header = HeaderLineMerge.Replace(header, " ");
@@ -501,11 +517,8 @@ namespace Niob
             {
                 if (clientState.ContentLength >= 0)
                 {
-                    // we expect a payload
-                    // calculate the payload length already recieved (-2 bytes for the empty line)
-                    long currentContentLength = clientState.InStream.Length - clientState.HeaderLength - 2;
-
-                    if (currentContentLength < clientState.ContentLength)
+                    // we expect a payload ... check if we got all
+                    if (clientState.ContentStream.Length < clientState.ContentLength)
                     {
                         continueRead = true;
                     }

@@ -48,6 +48,7 @@
     <Compile Include="HttpResponse.cs" />
     <Compile Include="Niob.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
+    <Compile Include="ReadOnlyStream.cs" />
     <Compile Include="RequestEventArgs.cs" />
     <Compile Include="TimeSpanExtensions.cs" />
   </ItemGroup>
