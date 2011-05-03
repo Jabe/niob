@@ -52,22 +52,21 @@ namespace Niob
             writer.Write(StatusText);
             writer.Write("\r\n");
 
-            if (ContentStream != null)
+            long contentLength = (ContentStream == null) ? 0 : ContentStream.Length;
+
+            writer.Write("Content-Length: " + contentLength);
+            writer.Write("\r\n");
+
+            if (ContentType != null)
             {
-                writer.Write("Content-Length: " + ContentStream.Length);
-                writer.Write("\r\n");
+                writer.Write("Content-Type: " + ContentType);
 
-                if (ContentType != null)
+                if (ContentCharSet != null)
                 {
-                    writer.Write("Content-Type: " + ContentType);
-
-                    if (ContentCharSet != null)
-                    {
-                        writer.Write("; charset=" + ContentCharSet);
-                    }
-
-                    writer.Write("\r\n");
+                    writer.Write("; charset=" + ContentCharSet);
                 }
+
+                writer.Write("\r\n");
             }
 
             if (_clientState.KeepAlive)
