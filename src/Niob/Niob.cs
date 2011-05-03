@@ -388,6 +388,13 @@ namespace Niob
 
             RemoveFromWatchlist(clientState);
 
+            if (inBytes == 0)
+            {
+                // eos
+                DropRequest(clientState);
+                return;
+            }
+
             try
             {
                 // copy to currrent stream
