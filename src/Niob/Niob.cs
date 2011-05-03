@@ -254,7 +254,12 @@ namespace Niob
                 clientState.IsRendering = false;
                 clientState.Response = new HttpResponse(clientState);
 
-                OnRequestAccepted(clientState);
+                bool hasHandler = OnRequestAccepted(clientState);
+
+                if (!hasHandler)
+                {
+                    clientState.Response.Send();
+                }
 
                 return "IsRendering -> OnRequestAccepted";
             }
@@ -286,7 +291,7 @@ namespace Niob
             return "Unknown -> end";
         }
 
-        private void OnRequestAccepted(ClientState clientState)
+        private bool OnRequestAccepted(ClientState clientState)
         {
             EventHandler<RequestEventArgs> handler = RequestAccepted;
 
@@ -295,7 +300,11 @@ namespace Niob
                 var eventArgs = new RequestEventArgs(clientState);
 
                 handler(this, eventArgs);
+
+                return true;
             }
+
+            return false;
         }
 
         private void ReadAsync(ClientState clientState)
