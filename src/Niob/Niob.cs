@@ -136,14 +136,24 @@ namespace Niob
                 // again
                 tuple.Item1.BeginAccept(AcceptCallback, tuple);
             }
-            catch (ObjectDisposedException)
+            catch (Exception)
             {
                 // listening socket was closed
                 return;
             }
 
-            // the client
-            Socket socket = tuple.Item1.EndAccept(ar);
+            Socket socket;
+
+            try
+            {
+                // the client
+                socket = tuple.Item1.EndAccept(ar);
+            }
+            catch (Exception)
+            {
+                // client socket is broken
+                return;
+            }
 
             var clientState = new ClientState(socket, tuple.Item2, this) {IsReading = true};
             EnqueueAndKickWorkers(clientState);
@@ -188,14 +198,8 @@ namespace Niob
                 {
                     continueRead = ShouldContinueReading(clientState);
                 }
-                catch (ProtocolViolationException e)
+                catch (Exception)
                 {
-                    Console.WriteLine(e);
-                    DropRequest(clientState);
-                }
-                catch (Exception e)
-                {
-                    Console.WriteLine(e);
                     DropRequest(clientState);
                 }
 
@@ -313,11 +317,13 @@ namespace Niob
 
             try
             {
-                clientState.Stream.BeginRead(clientState.InBuffer, 0, clientState.InBuffer.Length, ReadCallback, clientState);
+                clientState.Stream.BeginRead(clientState.InBuffer, 0, clientState.InBuffer.Length, ReadCallback,
+                                             clientState);
             }
-            catch (ObjectDisposedException)
+            catch (Exception)
             {
                 DropRequest(clientState);
+                return;
             }
         }
 
@@ -336,7 +342,7 @@ namespace Niob
             {
                 clientState.Stream.BeginWrite(clientState.OutBuffer, 0, size, WriteCallback, clientState);
             }
-            catch (ObjectDisposedException)
+            catch (Exception)
             {
                 DropRequest(clientState);
                 return;
@@ -354,12 +360,7 @@ namespace Niob
             {
                 clientState.Stream.EndWrite(ar);
             }
-            catch (IOException)
-            {
-                DropRequest(clientState);
-                return;
-            }
-            catch (ObjectDisposedException)
+            catch (Exception)
             {
                 DropRequest(clientState);
                 return;
@@ -384,12 +385,7 @@ namespace Niob
             {
                 inBytes = clientState.Stream.EndRead(ar);
             }
-            catch (IOException)
-            {
-                DropRequest(clientState);
-                return;
-            }
-            catch (ObjectDisposedException)
+            catch (Exception)
             {
                 DropRequest(clientState);
                 return;
