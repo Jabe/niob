@@ -30,7 +30,7 @@ namespace Niob
         private readonly List<ClientState> _timeoutWatch = new List<ClientState>();
         private readonly AutoResetEvent _workPending = new AutoResetEvent(false);
 
-        private readonly List<Thread> _workerThreads = new List<Thread>();
+        private readonly List<Thread> _threads = new List<Thread>();
 
         public List<Binding> Bindings
         {
@@ -59,8 +59,7 @@ namespace Niob
             {
                 var worker = new Thread(WorkerThread) {IsBackground = true};
 
-                _workerThreads.Add(worker);
-
+                _threads.Add(worker);
                 worker.Start();
             }
 
@@ -68,8 +67,14 @@ namespace Niob
             {
                 var listener = new Thread(BindingThread) {IsBackground = true};
 
+                _threads.Add(listener);
                 listener.Start(binding);
             }
+
+            var janitor = new Thread(HandleKeepAlive) {IsBackground = true};
+
+            _threads.Add(janitor);
+            janitor.Start();
         }
 
         internal void EnqueueAndKickWorkers(ClientState clientState)
@@ -94,13 +99,31 @@ namespace Niob
             socket.Bind(new IPEndPoint(binding.IpAddress, binding.Port));
             socket.Listen(TcpBackLogSize);
 
-            // get it going initally
-            socket.BeginAccept(AcceptCallback, Tuple.Create(socket, binding));
-
-            while (true)
+            while (!_stopping.WaitOne(0))
             {
-                Thread.Sleep(1000);
+                Socket client;
 
+                try
+                {
+                    client = socket.Accept();
+                }
+                catch (Exception)
+                {
+                    // closed
+                    break;
+                }
+
+                var clientState = new ClientState(client, binding, this) {IsReading = true};
+                EnqueueAndKickWorkers(clientState);
+            }
+        }
+
+        private void HandleKeepAlive()
+        {
+            const int wait = 1000;
+
+            while (!_stopping.WaitOne(wait))
+            {
                 long threshold = GetTimestamp() - Timeout.Ticks;
 
                 var clientsToDrop = new List<ClientState>();
@@ -125,38 +148,6 @@ namespace Niob
                     DropRequest(client);
                 }
             }
-        }
-
-        private void AcceptCallback(IAsyncResult ar)
-        {
-            var tuple = (Tuple<Socket, Binding>) ar.AsyncState;
-
-            try
-            {
-                // again
-                tuple.Item1.BeginAccept(AcceptCallback, tuple);
-            }
-            catch (Exception)
-            {
-                // listening socket was closed
-                return;
-            }
-
-            Socket socket;
-
-            try
-            {
-                // the client
-                socket = tuple.Item1.EndAccept(ar);
-            }
-            catch (Exception)
-            {
-                // client socket is broken
-                return;
-            }
-
-            var clientState = new ClientState(socket, tuple.Item2, this) {IsReading = true};
-            EnqueueAndKickWorkers(clientState);
         }
 
         private void WorkerThread()
@@ -608,12 +599,12 @@ namespace Niob
                 _timeoutWatch.Clear();
             }
 
-            foreach (Thread thread in _workerThreads)
+            foreach (Thread thread in _threads)
             {
                 thread.Join();
             }
 
-            _workerThreads.Clear();
+            _threads.Clear();
         }
     }
 }
