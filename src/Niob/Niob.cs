@@ -517,6 +517,11 @@ namespace Niob
                             keepAlive = false;
                         }
                     }
+                    else
+                    {
+                        // decide by version
+                        keepAlive = (clientState.Request.Version != HttpVersion.Http10);
+                    }
                 }
 
                 clientState.HeaderLength = headerLength;
