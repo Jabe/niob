@@ -135,7 +135,7 @@ namespace Niob
                     {
                         ClientState clientState = _timeoutWatch[i];
 
-                        if (clientState.LastActivity < threshold)
+                        if (clientState.Disposed || clientState.LastActivity < threshold)
                         {
                             _timeoutWatch.RemoveAt(i);
                             clientsToDrop.Add(clientState);
@@ -145,7 +145,7 @@ namespace Niob
 
                 foreach (ClientState client in clientsToDrop)
                 {
-                    DropRequest(client);
+                    DropRequest(client, false);
                 }
             }
         }
@@ -382,14 +382,14 @@ namespace Niob
                 return;
             }
 
-            RemoveFromWatchlist(clientState);
-
             if (inBytes == 0)
             {
                 // eos
                 DropRequest(clientState);
                 return;
             }
+
+            RemoveFromWatchlist(clientState);
 
             try
             {
@@ -410,10 +410,13 @@ namespace Niob
             EnqueueAndKickWorkers(clientState);
         }
 
-        private static void DropRequest(ClientState clientState)
+        private void DropRequest(ClientState clientState, bool removeFromWatchlist = true)
         {
             try
             {
+                if (removeFromWatchlist)
+                    RemoveFromWatchlist(clientState);
+
                 using (clientState)
                 {
                 }
