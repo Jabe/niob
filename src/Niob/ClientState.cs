@@ -29,7 +29,11 @@ namespace Niob
 
             HeaderLength = -1;
             ContentLength = -1;
+
+            Id = Guid.NewGuid();
         }
+
+        public Guid Id { get; set; }
 
         public Stream Stream
         {
@@ -105,7 +109,8 @@ namespace Niob
             using (_tlsStream)
             using (_networkStream)
             {
-                _networkStream.Close();
+                if (_networkStream != null)
+                    _networkStream.Close();
             }
 
             _disposed = true;
