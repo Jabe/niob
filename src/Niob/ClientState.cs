@@ -4,6 +4,7 @@ using System.IO;
 using System.Net.Security;
 using System.Net.Sockets;
 using System.Security.Authentication;
+using System.Threading;
 
 namespace Niob
 {
@@ -69,7 +70,7 @@ namespace Niob
         public bool IsRendering { get; set; }
         public bool IsPostRendering { get; set; }
 
-        public long LastActivity { get; set; }
+        private long _lastActivity;
 
         public bool Disposed
         {
@@ -94,6 +95,23 @@ namespace Niob
             get { return _server; }
         }
 
+        public Socket Socket
+        {
+            get { return _socket; }
+        }
+
+        public long LastActivity
+        {
+            get
+            {
+                return Interlocked.Read(ref _lastActivity);
+            }
+            set
+            {
+                Interlocked.Exchange(ref _lastActivity, value);
+            }
+        }
+
         #region IDisposable Members
 
         public void Dispose()
@@ -112,15 +130,31 @@ namespace Niob
 
         #endregion
 
-        public void AsyncInitialize(Action<ClientState> onSuccess)
+        public void AsyncInitialize(Action<ClientState> onSuccess, Action<ClientState> onFailure)
         {
-            _networkStream = new NetworkStream(_socket, true);
+            try
+            {
+                _networkStream = new NetworkStream(Socket, true);
+            }
+            catch (Exception)
+            {
+                onFailure(this);
+                return;
+            }
 
             if (Binding.Secure && Binding.Certificate != null)
             {
-                _tlsStream = new SslStream(_networkStream);
-                _tlsStream.BeginAuthenticateAsServer(Binding.Certificate, false, SslProtocols.Default, false,
-                                                     InitializeCallback, onSuccess);
+                try
+                {
+                    _tlsStream = new SslStream(_networkStream);
+                    _tlsStream.BeginAuthenticateAsServer(Binding.Certificate, false, SslProtocols.Default, false,
+                                                         InitializeCallback, onSuccess);
+                }
+                catch (Exception)
+                {
+                    onFailure(this);
+                    return;
+                }
             }
             else
             {

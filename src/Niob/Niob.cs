@@ -112,6 +112,7 @@ namespace Niob
                 }
 
                 var clientState = new ClientState(client, binding, this) {IsReading = true};
+                RecordActivity(clientState);
                 AddNewClient(clientState);
                 EnqueueAndKickWorkers(clientState);
             }
@@ -142,7 +143,7 @@ namespace Niob
 
                     if (clientState.LastActivity < threshold)
                     {
-                        DropRequest(clientState);
+                        EndRequest(clientState);
                     }
                 }
             }
@@ -174,7 +175,7 @@ namespace Niob
             if (!clientState.IsReady)
             {
                 RecordActivity(clientState);
-                clientState.AsyncInitialize(EnqueueAndKickWorkers);
+                clientState.AsyncInitialize(EnqueueAndKickWorkers, DropRequest);
 
                 return "AsyncInitialize";
             }
@@ -192,7 +193,7 @@ namespace Niob
                 }
                 catch (Exception)
                 {
-                    DropRequest(clientState);
+                    EndRequest(clientState);
                 }
 
                 if (continueRead)
@@ -235,7 +236,7 @@ namespace Niob
                 }
 
                 // end.
-                DropRequest(clientState);
+                EndRequest(clientState);
                 return "IsWriting -> end";
             }
 
@@ -319,6 +320,7 @@ namespace Niob
             }
             catch (Exception)
             {
+                // e.g. when clients close their KA socket
                 DropRequest(clientState);
                 return;
             }
@@ -380,6 +382,7 @@ namespace Niob
             }
             catch (Exception)
             {
+                // e.g. when clients close their KA socket
                 DropRequest(clientState);
                 return;
             }
@@ -387,7 +390,7 @@ namespace Niob
             if (inBytes == 0)
             {
                 // eos
-                DropRequest(clientState);
+                EndRequest(clientState);
                 return;
             }
 
@@ -410,11 +413,38 @@ namespace Niob
             EnqueueAndKickWorkers(clientState);
         }
 
+        private void EndRequest(ClientState clientState)
+        {
+            try
+            {
+                RemoveClient(clientState);
+
+                if (!clientState.Disposed)
+                {
+                    clientState.Socket.Shutdown(SocketShutdown.Both);
+                    clientState.Socket.Close();
+                }
+
+                using (clientState)
+                {
+                }
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine("error while ending a request: " + e);
+            }
+        }
+
         private void DropRequest(ClientState clientState)
         {
             try
             {
                 RemoveClient(clientState);
+
+                if (!clientState.Disposed)
+                {
+                    clientState.Socket.Close();
+                }
 
                 using (clientState)
                 {
@@ -581,12 +611,12 @@ namespace Niob
 
                 _clients.TryDequeue(out state);
 
-                DropRequest(state);
+                EndRequest(state);
             }
 
             foreach (var kv in _allClients)
             {
-                DropRequest(kv.Value);
+                EndRequest(kv.Value);
             }
 
             _allClients.Clear();
