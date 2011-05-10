@@ -14,8 +14,7 @@ namespace Niob
     public class Niob : IDisposable
     {
         public const int MaxHeaderSize = 0x2000;
-        public const int InBufferSize = 0x1000;
-        public const int OutBufferSize = 0x1000;
+        public const int ClientBufferSize = 0x1000;
         public const int TcpBackLogSize = 0x20;
 
         private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(5);
@@ -316,8 +315,7 @@ namespace Niob
         {
             try
             {
-                clientState.Stream.BeginRead(clientState.InBuffer, 0, clientState.InBuffer.Length, ReadCallback,
-                                             clientState);
+                clientState.Stream.BeginRead(clientState.Buffer, 0, clientState.Buffer.Length, ReadCallback, clientState);
             }
             catch (Exception)
             {
@@ -331,13 +329,13 @@ namespace Niob
             long bytesToSend = clientState.OutStream.Length;
             long bytesSent = clientState.OutStream.Position;
 
-            var size = (int) Math.Min(bytesToSend - bytesSent, OutBufferSize);
+            var size = (int) Math.Min(bytesToSend - bytesSent, ClientBufferSize);
 
-            size = clientState.OutStream.Read(clientState.OutBuffer, 0, size);
+            size = clientState.OutStream.Read(clientState.Buffer, 0, size);
 
             try
             {
-                clientState.Stream.BeginWrite(clientState.OutBuffer, 0, size, WriteCallback, clientState);
+                clientState.Stream.BeginWrite(clientState.Buffer, 0, size, WriteCallback, clientState);
             }
             catch (Exception)
             {
@@ -400,7 +398,7 @@ namespace Niob
                                     ? clientState.HeaderStream
                                     : clientState.ContentStream;
 
-                stream.Write(clientState.InBuffer, 0, inBytes);
+                stream.Write(clientState.Buffer, 0, inBytes);
             }
             catch (ObjectDisposedException)
             {
@@ -449,7 +447,7 @@ namespace Niob
 
                 if (headerBytes.Length >= 4)
                 {
-                    for (int i = headerBytes.Length - 4; i >= Math.Max(0, headerBytes.Length - InBufferSize - 4); i--)
+                    for (int i = headerBytes.Length - 4; i >= Math.Max(0, headerBytes.Length - ClientBufferSize - 4); i--)
                     {
                         if (headerBytes[i + 0] == '\r' && headerBytes[i + 1] == '\n' &&
                             headerBytes[i + 2] == '\r' && headerBytes[i + 3] == '\n')

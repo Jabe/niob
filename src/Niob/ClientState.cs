@@ -12,11 +12,10 @@ namespace Niob
         private readonly Socket _socket;
         private readonly Niob _server;
         private bool _disposed;
-        private byte[] _inBuffer;
+        private byte[] _buffer;
         private MemoryStream _headerStream;
         private MemoryStream _contentStream;
         private NetworkStream _networkStream;
-        private byte[] _outBuffer;
         private SslStream _tlsStream;
         private readonly List<string> _requestHeaderLines = new List<string>();
         private readonly List<KeyValuePair<string, string>> _requestHeaders = new List<KeyValuePair<string, string>>();
@@ -42,9 +41,9 @@ namespace Niob
 
         public Binding Binding { get; private set; }
 
-        public byte[] InBuffer
+        public byte[] Buffer
         {
-            get { return _inBuffer ?? (_inBuffer = new byte[Niob.InBufferSize]); }
+            get { return _buffer ?? (_buffer = new byte[Niob.ClientBufferSize]); }
         }
 
         public MemoryStream HeaderStream
@@ -60,11 +59,6 @@ namespace Niob
         public int HeaderLength { get; set; }
         public int ContentLength { get; set; }
         public bool KeepAlive { get; set; }
-
-        public byte[] OutBuffer
-        {
-            get { return _outBuffer ?? (_outBuffer = new byte[Niob.OutBufferSize]); }
-        }
 
         public Stream OutStream { get; set; }
 
