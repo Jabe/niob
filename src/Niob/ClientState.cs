@@ -15,7 +15,6 @@ namespace Niob
         private bool _disposed;
         private byte[] _buffer;
         private MemoryStream _headerStream;
-        private MemoryStream _contentStream;
         private NetworkStream _networkStream;
         private SslStream _tlsStream;
         private readonly List<string> _requestHeaderLines = new List<string>();
@@ -52,15 +51,13 @@ namespace Niob
             get { return _headerStream ?? (_headerStream = new MemoryStream()); }
         }
 
-        public MemoryStream ContentStream
-        {
-            get { return _contentStream ?? (_contentStream = new MemoryStream()); }
-        }
+        public Stream ContentStream { get; set; }
 
         public int HeaderLength { get; set; }
-        public int ContentLength { get; set; }
+        public long ContentLength { get; set; }
+        public long BytesRead { get; set; }
         public bool KeepAlive { get; set; }
-
+        
         public Stream OutStream { get; set; }
 
         public bool IsReady { get; set; }
@@ -114,12 +111,15 @@ namespace Niob
             }
         }
 
+        public string ContentStreamFile { get; set; }
+
         #region IDisposable Members
 
         public void Dispose()
         {
+            Clear();
+
             using (_headerStream)
-            using (_contentStream)
             using (_tlsStream)
             using (_networkStream)
             {
@@ -188,12 +188,34 @@ namespace Niob
         {
             HeaderLength = -1;
             ContentLength = -1;
+            BytesRead = 0;
             RequestHeaders.Clear();
             RequestHeaderLines.Clear();
-            HeaderStream.SetLength(0);
-            ContentStream.SetLength(0);
             Request = null;
             Response = null;
+
+            using (_headerStream)
+            {
+            }
+            _headerStream = null;
+
+            using (ContentStream)
+            {
+            }
+            ContentStream = null;
+
+            if (ContentStreamFile != null)
+            {
+                try
+                {
+                    File.Delete(ContentStreamFile);
+                }
+                catch
+                {
+                }
+            }
+
+            ContentStreamFile = null;
         }
     }
 }

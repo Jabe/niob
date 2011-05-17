@@ -16,6 +16,7 @@ namespace Niob
         public const int MaxHeaderSize = 0x2000;
         public const int ClientBufferSize = 0x1000;
         public const int TcpBackLogSize = 0x20;
+        public const int BigFileThreshold = 0x100000;
 
         private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(5);
         private static readonly Regex HeaderLineMerge = new Regex(@"\r\n[ \t]+");
@@ -426,12 +427,14 @@ namespace Niob
 
             try
             {
-                // copy to currrent stream
+                // copy to current stream
                 Stream stream = (clientState.HeaderLength == -1)
                                     ? clientState.HeaderStream
                                     : clientState.ContentStream;
 
                 stream.Write(clientState.Buffer, 0, inBytes);
+
+                clientState.BytesRead += inBytes;
             }
             catch (ObjectDisposedException)
             {
@@ -500,7 +503,7 @@ namespace Niob
             if (clientState.HeaderLength == -1)
             {
                 int headerLength = -1;
-                int contentLength = -1;
+                long contentLength = -1;
                 bool keepAlive = clientState.Binding.SupportsKeepAlive;
 
                 byte[] headerBytes = clientState.HeaderStream.ToArray();
@@ -532,23 +535,11 @@ namespace Niob
                 }
                 else
                 {
-                    // check if some content got on the wrong stream
-                    if (clientState.HeaderStream.Length > headerLength)
-                    {
-                        // fix it
-                        clientState.HeaderStream.Seek(headerLength, SeekOrigin.Begin);
-                        clientState.HeaderStream.CopyTo(clientState.ContentStream);
-                        clientState.HeaderStream.SetLength(headerLength);
-                    }
-
                     clientState.Request = new HttpRequest(clientState);
 
                     // header found. read the content-length http header
                     // to determine if we should continue reading.
                     string header = Encoding.ASCII.GetString(headerBytes, 0, headerLength);
-
-                    // we are done with the header
-                    clientState.HeaderStream.SetLength(0);
 
                     // merge continuations
                     header = HeaderLineMerge.Replace(header, " ");
@@ -561,7 +552,7 @@ namespace Niob
 
                     if (clientState.Request.Headers.TryGetValue("Content-Length", out contentLengthHeader))
                     {
-                        if (!int.TryParse(contentLengthHeader, out contentLength))
+                        if (!long.TryParse(contentLengthHeader, out contentLength))
                         {
                             contentLength = -1;
                         }
@@ -594,6 +585,29 @@ namespace Niob
                             clientState.IsExpectingContinue = true;
                         }
                     }
+
+                    // init content stream
+                    if (contentLength > BigFileThreshold)
+                    {
+                        clientState.ContentStreamFile = Path.GetTempFileName();
+                        clientState.ContentStream = File.Create(clientState.ContentStreamFile);
+                    }
+                    else
+                    {
+                        clientState.ContentStream = new MemoryStream();
+                    }
+
+                    // check if some content got on the wrong stream
+                    if (clientState.HeaderStream.Length > headerLength)
+                    {
+                        // fix it
+                        clientState.HeaderStream.Seek(headerLength, SeekOrigin.Begin);
+                        clientState.HeaderStream.CopyTo(clientState.ContentStream);
+                        clientState.HeaderStream.SetLength(headerLength);
+                    }
+
+                    // we are done with the header stream
+                    clientState.HeaderStream.SetLength(0);
                 }
 
                 clientState.HeaderLength = headerLength;
@@ -607,7 +621,7 @@ namespace Niob
                 if (!clientState.IsExpectingContinue && clientState.ContentLength >= 0)
                 {
                     // we expect a payload ... check if we got all
-                    if (clientState.ContentStream.Length < clientState.ContentLength)
+                    if (clientState.BytesRead < clientState.ContentLength)
                     {
                         continueRead = true;
                     }
