@@ -69,6 +69,8 @@ namespace Niob
         public bool IsKeepingAlive { get; set; }
         public bool IsRendering { get; set; }
         public bool IsPostRendering { get; set; }
+        public bool IsExpectingContinue { get; set; }
+        public bool IsPostExpectingContinue { get; set; }
 
         private long _lastActivity;
 

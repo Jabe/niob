@@ -203,6 +203,12 @@ namespace Niob
                     return "IsReading -> ReadAsync";
                 }
 
+                if (clientState.IsExpectingContinue)
+                {
+                    EnqueueAndKickWorkers(clientState);
+                    return "IsReading -> IsExpectingContinue";
+                }
+
                 clientState.IsRendering = true;
                 EnqueueAndKickWorkers(clientState);
 
@@ -223,6 +229,12 @@ namespace Niob
                     WriteAsync(clientState);
 
                     return "IsWriting -> WriteAsync";
+                }
+                
+                if (clientState.IsPostExpectingContinue)
+                {
+                    EnqueueAndKickWorkers(clientState);
+                    return "IsWriting -> IsPostExpectingContinue";
                 }
 
                 if (clientState.KeepAlive)
@@ -288,6 +300,24 @@ namespace Niob
                 EnqueueAndKickWorkers(clientState);
 
                 return "IsPostRendering -> IsWriting";
+            }
+
+            if (clientState.IsExpectingContinue)
+            {
+                clientState.IsExpectingContinue = false;
+                clientState.OutStream = new MemoryStream(Encoding.ASCII.GetBytes("HTTP/1.1 100 Continue\r\n\r\n"));
+                clientState.IsWriting = true;
+                clientState.IsPostExpectingContinue = true;
+                EnqueueAndKickWorkers(clientState);
+                return "IsExpectingContinue -> IsReading|IsPostExpectingContinue";
+            }
+
+            if (clientState.IsPostExpectingContinue)
+            {
+                clientState.IsPostExpectingContinue = false;
+                clientState.IsReading = true;
+                EnqueueAndKickWorkers(clientState);
+                return "IsPostExpectingContinue -> IsReading";
             }
 
             Console.WriteLine("Unknown state.");
@@ -541,9 +571,9 @@ namespace Niob
                     {
                         string connectionHeader;
 
-                        if (clientState.Request.Headers.TryGetValue("connection", out connectionHeader))
+                        if (clientState.Request.Headers.TryGetValue("Connection", out connectionHeader))
                         {
-                            if (StringComparer.OrdinalIgnoreCase.Compare(connectionHeader, "keep-alive") != 0)
+                            if (StringComparer.OrdinalIgnoreCase.Compare(connectionHeader, "keep-alive") < 0)
                             {
                                 keepAlive = false;
                             }
@@ -552,6 +582,16 @@ namespace Niob
                         {
                             // decide by version
                             keepAlive = (clientState.Request.Version != HttpVersion.Http10);
+                        }
+                    }
+
+                    string expectHeader;
+
+                    if (clientState.Request.Headers.TryGetValue("Expect", out expectHeader))
+                    {
+                        if (StringComparer.OrdinalIgnoreCase.Compare(expectHeader, "100-continue") >= 0)
+                        {
+                            clientState.IsExpectingContinue = true;
                         }
                     }
                 }
@@ -564,7 +604,7 @@ namespace Niob
             // we got the header...
             if (clientState.HeaderLength >= 0)
             {
-                if (clientState.ContentLength >= 0)
+                if (!clientState.IsExpectingContinue && clientState.ContentLength >= 0)
                 {
                     // we expect a payload ... check if we got all
                     if (clientState.ContentStream.Length < clientState.ContentLength)
