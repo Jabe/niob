@@ -17,8 +17,10 @@ namespace Niob.Example
         {
             var niob = new Niob();
 
-            niob.Bindings.Add(IPAddress.Loopback, 666);
+            var binding = niob.Bindings.Add(IPAddress.Loopback, 666);
             //niob.Bindings.Add(IPAddress.Loopback, 666, true, new X509Certificate2(@"niob.cer"));
+
+            binding.SupportsKeepAlive = false;
 
             niob.RequestAccepted += HandleRequestAsync;
 

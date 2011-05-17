@@ -24,5 +24,6 @@ namespace Niob
         public ushort Port { get; private set; }
         public bool Secure { get; private set; }
         public X509Certificate2 Certificate { get; set; }
+        public bool SupportsKeepAlive { get; set; }
     }
 }

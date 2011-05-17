@@ -7,15 +7,21 @@ namespace Niob
 {
     public static class BindingExtensions
     {
-        public static void Add(this List<Binding> self, IPAddress ipAddress, ushort port)
+        public static Binding Add(this List<Binding> self, IPAddress ipAddress, ushort port)
         {
-            self.Add(new Binding(ipAddress, port));
+            var binding = new Binding(ipAddress, port);
+            self.Add(binding);
+
+            return binding;
         }
 
-        public static void Add(this List<Binding> self, IPAddress ipAddress, ushort port, bool secure,
-                               X509Certificate2 certificate)
+        public static Binding Add(this List<Binding> self, IPAddress ipAddress, ushort port, bool secure,
+                                  X509Certificate2 certificate)
         {
-            self.Add(new Binding(ipAddress, port, secure, certificate));
+            var binding = new Binding(ipAddress, port, secure, certificate);
+            self.Add(binding);
+
+            return binding;
         }
     }
 }

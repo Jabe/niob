@@ -471,7 +471,7 @@ namespace Niob
             {
                 int headerLength = -1;
                 int contentLength = -1;
-                bool keepAlive = true;
+                bool keepAlive = clientState.Binding.SupportsKeepAlive;
 
                 byte[] headerBytes = clientState.HeaderStream.ToArray();
 
@@ -537,19 +537,22 @@ namespace Niob
                         }
                     }
 
-                    string connectionHeader;
+                    if (clientState.Binding.SupportsKeepAlive)
+                    {
+                        string connectionHeader;
 
-                    if (clientState.Request.Headers.TryGetValue("connection", out connectionHeader))
-                    {
-                        if (StringComparer.OrdinalIgnoreCase.Compare(connectionHeader, "keep-alive") != 0)
+                        if (clientState.Request.Headers.TryGetValue("connection", out connectionHeader))
                         {
-                            keepAlive = false;
+                            if (StringComparer.OrdinalIgnoreCase.Compare(connectionHeader, "keep-alive") != 0)
+                            {
+                                keepAlive = false;
+                            }
                         }
-                    }
-                    else
-                    {
-                        // decide by version
-                        keepAlive = (clientState.Request.Version != HttpVersion.Http10);
+                        else
+                        {
+                            // decide by version
+                            keepAlive = (clientState.Request.Version != HttpVersion.Http10);
+                        }
                     }
                 }
 
