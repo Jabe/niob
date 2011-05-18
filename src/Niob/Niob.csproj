@@ -44,6 +44,7 @@
     <Compile Include="BindingExtensions.cs" />
     <Compile Include="ClientState.cs" />
     <Compile Include="Html.cs" />
+    <Compile Include="Uri.cs" />
     <Compile Include="HttpRequest.cs" />
     <Compile Include="HttpVersion.cs" />
     <Compile Include="HttpResponse.cs" />

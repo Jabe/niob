@@ -6,7 +6,7 @@ namespace Niob
 {
     public class Html
     {
-        public static string Escape(string input)
+        public static string Encode(string input)
         {
             return input
                 .Replace("&", "&amp;")
