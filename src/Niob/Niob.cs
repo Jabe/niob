@@ -268,6 +268,9 @@ namespace Niob
                 clientState.IsRendering = false;
                 RecordActivity(clientState);
 
+                // revert content stream
+                clientState.Request.ContentStream.Seek(0, SeekOrigin.Begin);
+
                 clientState.Response = new HttpResponse(clientState);
 
                 bool hasHandler = OnRequestAccepted(clientState);
