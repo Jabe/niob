@@ -43,6 +43,7 @@
     <Compile Include="Binding.cs" />
     <Compile Include="BindingExtensions.cs" />
     <Compile Include="ClientState.cs" />
+    <Compile Include="Html.cs" />
     <Compile Include="HttpRequest.cs" />
     <Compile Include="HttpVersion.cs" />
     <Compile Include="HttpResponse.cs" />
