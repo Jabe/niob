@@ -60,14 +60,34 @@ namespace Niob
         
         public Stream OutStream { get; set; }
 
-        public bool IsReady { get; set; }
-        public bool IsReading { get; set; }
-        public bool IsWriting { get; set; }
-        public bool IsKeepingAlive { get; set; }
-        public bool IsRendering { get; set; }
-        public bool IsPostRendering { get; set; }
-        public bool IsExpectingContinue { get; set; }
-        public bool IsPostExpectingContinue { get; set; }
+        private readonly object _opLock = new object();
+        private int _op;
+
+        public void AddOp(ClientStateOp op)
+        {
+            lock (_opLock)
+            {
+                _op |= (int) op;
+            }
+        }
+
+        public void RemoveOp(ClientStateOp op)
+        {
+            lock (_opLock)
+            {
+                _op &= ~(int) op;
+            }
+        }
+
+        public bool HasOp(ClientStateOp op)
+        {
+            var o = (int) op;
+
+            lock (_opLock)
+            {
+                return (_op & o) == o;
+            }
+        }
 
         private long _lastActivity;
 
@@ -160,7 +180,7 @@ namespace Niob
             }
             else
             {
-                IsReady = true;
+                AddOp(ClientStateOp.Ready);
                 onSuccess(this);
             }
         }
@@ -180,7 +200,7 @@ namespace Niob
                 return;
             }
 
-            IsReady = true;
+            AddOp(ClientStateOp.Ready);
             onSuccess(this);
         }
 

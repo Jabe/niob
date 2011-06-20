@@ -112,7 +112,8 @@ namespace Niob
                     break;
                 }
 
-                var clientState = new ClientState(client, binding, this) {IsReading = true};
+                var clientState = new ClientState(client, binding, this);
+                clientState.AddOp(ClientStateOp.Reading);
                 RecordActivity(clientState);
                 AddNewClient(clientState);
                 EnqueueAndKickWorkers(clientState);
@@ -173,7 +174,7 @@ namespace Niob
 
         private string WorkerThreadImpl(ClientState clientState)
         {
-            if (!clientState.IsReady)
+            if (!clientState.HasOp(ClientStateOp.Ready))
             {
                 RecordActivity(clientState);
                 clientState.AsyncInitialize(EnqueueAndKickWorkers, DropRequest);
@@ -181,9 +182,9 @@ namespace Niob
                 return "AsyncInitialize";
             }
 
-            if (clientState.IsReading)
+            if (clientState.HasOp(ClientStateOp.Reading))
             {
-                clientState.IsReading = false;
+                clientState.RemoveOp(ClientStateOp.Reading);
                 RecordActivity(clientState);
 
                 bool continueRead;
@@ -205,21 +206,21 @@ namespace Niob
                     return "IsReading -> ReadAsync";
                 }
 
-                if (clientState.IsExpectingContinue)
+                if (clientState.HasOp(ClientStateOp.ExpectingContinue))
                 {
                     EnqueueAndKickWorkers(clientState);
                     return "IsReading -> IsExpectingContinue";
                 }
 
-                clientState.IsRendering = true;
+                clientState.AddOp(ClientStateOp.Rendering);
                 EnqueueAndKickWorkers(clientState);
 
                 return "IsReading -> IsRendering";
             }
 
-            if (clientState.IsWriting)
+            if (clientState.HasOp(ClientStateOp.Writing))
             {
-                clientState.IsWriting = false;
+                clientState.RemoveOp(ClientStateOp.Writing);
                 RecordActivity(clientState);
 
                 long bytesToSend = clientState.OutStream.Length;
@@ -233,7 +234,7 @@ namespace Niob
                     return "IsWriting -> WriteAsync";
                 }
                 
-                if (clientState.IsPostExpectingContinue)
+                if (clientState.HasOp(ClientStateOp.PostExpectingContinue))
                 {
                     EnqueueAndKickWorkers(clientState);
                     return "IsWriting -> IsPostExpectingContinue";
@@ -243,7 +244,9 @@ namespace Niob
                 {
                     clientState.Clear();
 
-                    clientState.IsKeepingAlive = true;
+                    RecordActivity(clientState);
+                    clientState.AddOp(ClientStateOp.KeepingAlive);
+
                     EnqueueAndKickWorkers(clientState);
 
                     return "IsWriting -> IsKeepingAlive";
@@ -254,9 +257,9 @@ namespace Niob
                 return "IsWriting -> end";
             }
 
-            if (clientState.IsKeepingAlive)
+            if (clientState.HasOp(ClientStateOp.KeepingAlive))
             {
-                clientState.IsKeepingAlive = false;
+                clientState.RemoveOp(ClientStateOp.KeepingAlive);
                 RecordActivity(clientState);
 
                 ReadAsync(clientState);
@@ -264,9 +267,9 @@ namespace Niob
                 return "IsKeepingAlive -> ReadAsync";
             }
 
-            if (clientState.IsRendering)
+            if (clientState.HasOp(ClientStateOp.Rendering))
             {
-                clientState.IsRendering = false;
+                clientState.RemoveOp(ClientStateOp.Rendering);
                 RecordActivity(clientState);
 
                 // revert content stream
@@ -285,9 +288,9 @@ namespace Niob
                 return "IsRendering -> OnRequestAccepted";
             }
 
-            if (clientState.IsPostRendering)
+            if (clientState.HasOp(ClientStateOp.PostRendering))
             {
-                clientState.IsPostRendering = false;
+                clientState.RemoveOp(ClientStateOp.PostRendering);
                 RecordActivity(clientState);
 
                 clientState.OutStream = new MemoryStream();
@@ -301,26 +304,26 @@ namespace Niob
                 clientState.OutStream.Flush();
                 clientState.OutStream.Seek(0, SeekOrigin.Begin);
 
-                clientState.IsWriting = true;
+                clientState.AddOp(ClientStateOp.Writing);
                 EnqueueAndKickWorkers(clientState);
 
                 return "IsPostRendering -> IsWriting";
             }
 
-            if (clientState.IsExpectingContinue)
+            if (clientState.HasOp(ClientStateOp.ExpectingContinue))
             {
-                clientState.IsExpectingContinue = false;
+                clientState.RemoveOp(ClientStateOp.ExpectingContinue);
                 clientState.OutStream = new MemoryStream(Encoding.ASCII.GetBytes("HTTP/1.1 100 Continue\r\n\r\n"));
-                clientState.IsWriting = true;
-                clientState.IsPostExpectingContinue = true;
+                clientState.AddOp(ClientStateOp.Writing);
+                clientState.AddOp(ClientStateOp.PostExpectingContinue);
                 EnqueueAndKickWorkers(clientState);
                 return "IsExpectingContinue -> IsReading|IsPostExpectingContinue";
             }
 
-            if (clientState.IsPostExpectingContinue)
+            if (clientState.HasOp(ClientStateOp.PostExpectingContinue))
             {
-                clientState.IsPostExpectingContinue = false;
-                clientState.IsReading = true;
+                clientState.RemoveOp(ClientStateOp.PostExpectingContinue);
+                clientState.AddOp(ClientStateOp.Reading);
                 EnqueueAndKickWorkers(clientState);
                 return "IsPostExpectingContinue -> IsReading";
             }
@@ -398,7 +401,7 @@ namespace Niob
                 return;
             }
 
-            clientState.IsWriting = true;
+            clientState.AddOp(ClientStateOp.Writing);
             EnqueueAndKickWorkers(clientState);
         }
 
@@ -446,7 +449,7 @@ namespace Niob
                 return;
             }
 
-            clientState.IsReading = true;
+            clientState.AddOp(ClientStateOp.Reading);
             EnqueueAndKickWorkers(clientState);
         }
 
@@ -586,7 +589,7 @@ namespace Niob
                     {
                         if (StringComparer.OrdinalIgnoreCase.Compare(expectHeader, "100-continue") >= 0)
                         {
-                            clientState.IsExpectingContinue = true;
+                            clientState.AddOp(ClientStateOp.ExpectingContinue);
                         }
                     }
 
@@ -622,7 +625,7 @@ namespace Niob
             // we got the header...
             if (clientState.HeaderLength >= 0)
             {
-                if (!clientState.IsExpectingContinue && clientState.ContentLength >= 0)
+                if (!clientState.HasOp(ClientStateOp.ExpectingContinue) && clientState.ContentLength >= 0)
                 {
                     // we expect a payload ... check if we got all
                     if (clientState.BytesRead < clientState.ContentLength)

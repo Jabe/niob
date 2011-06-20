@@ -94,7 +94,7 @@ namespace Niob
 
         public void Send()
         {
-            _clientState.IsPostRendering = true;
+            _clientState.AddOp(ClientStateOp.PostRendering);
             _clientState.Server.EnqueueAndKickWorkers(_clientState);
         }
     }
