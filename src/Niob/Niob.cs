@@ -186,7 +186,7 @@ namespace Niob
                 clientState.IsReading = false;
                 RecordActivity(clientState);
 
-                bool continueRead = false;
+                bool continueRead;
 
                 try
                 {
@@ -195,6 +195,7 @@ namespace Niob
                 catch (Exception)
                 {
                     EndRequest(clientState);
+                    return "IsReading -> end.";
                 }
 
                 if (continueRead)
