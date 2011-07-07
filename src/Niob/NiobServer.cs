@@ -11,7 +11,7 @@ using System.Threading;
 
 namespace Niob
 {
-    public class Niob : IDisposable
+    public class NiobServer : IDisposable
     {
         public const int MaxHeaderSize = 0x2000;
         public const int ClientBufferSize = 0x1000;

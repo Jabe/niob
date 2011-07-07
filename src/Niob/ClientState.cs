@@ -11,7 +11,7 @@ namespace Niob
     public class ClientState : IDisposable
     {
         private readonly Socket _socket;
-        private readonly Niob _server;
+        private readonly NiobServer _server;
         private bool _disposed;
         private byte[] _buffer;
         private MemoryStream _headerStream;
@@ -20,7 +20,7 @@ namespace Niob
         private readonly List<string> _requestHeaderLines = new List<string>();
         private readonly List<KeyValuePair<string, string>> _requestHeaders = new List<KeyValuePair<string, string>>();
 
-        public ClientState(Socket socket, Binding binding, Niob server)
+        public ClientState(Socket socket, Binding binding, NiobServer server)
         {
             _socket = socket;
             _server = server;
@@ -43,7 +43,7 @@ namespace Niob
 
         public byte[] Buffer
         {
-            get { return _buffer ?? (_buffer = new byte[Niob.ClientBufferSize]); }
+            get { return _buffer ?? (_buffer = new byte[NiobServer.ClientBufferSize]); }
         }
 
         public MemoryStream HeaderStream
@@ -109,7 +109,7 @@ namespace Niob
         public HttpRequest Request { get; set; }
         public HttpResponse Response { get; set; }
 
-        public Niob Server
+        public NiobServer Server
         {
             get { return _server; }
         }

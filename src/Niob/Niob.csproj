@@ -49,7 +49,7 @@
     <Compile Include="HttpRequest.cs" />
     <Compile Include="HttpVersion.cs" />
     <Compile Include="HttpResponse.cs" />
-    <Compile Include="Niob.cs" />
+    <Compile Include="NiobServer.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="ReadOnlyStream.cs" />
     <Compile Include="RequestEventArgs.cs" />
