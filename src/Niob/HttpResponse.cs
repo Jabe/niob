@@ -16,8 +16,8 @@ namespace Niob
             _clientState = clientState;
 
             Version = HttpVersion.Http10;
-            StatusCode = 501;
-            StatusText = "Not Implemented";
+            StatusCode = 404;
+            StatusText = "Not Found";
         }
 
         public HttpVersion Version { get; set; }
