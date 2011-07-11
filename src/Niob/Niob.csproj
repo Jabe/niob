@@ -46,7 +46,6 @@
     <Compile Include="ClientStateOp.cs" />
     <Compile Include="SimpleHtml\Html.cs" />
     <Compile Include="SimpleHtml\HtmlVersion.cs" />
-    <Compile Include="Uri.cs" />
     <Compile Include="HttpRequest.cs" />
     <Compile Include="HttpVersion.cs" />
     <Compile Include="HttpResponse.cs" />
