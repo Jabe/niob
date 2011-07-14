@@ -25,17 +25,18 @@ namespace Niob
             _clientState = clientState;
         }
 
-        public string Method { get; set; }
-        public string Uri { get; set; }
-        public HttpVersion Version { get; set; }
+        public string Host { get; private set; }
+        public string Method { get; private set; }
+        public Uri Url { get; private set; }
+        public HttpVersion Version { get; private set; }
 
         public Stream ContentStream
         {
             get { return _contentStream ?? (_contentStream = new ReadOnlyStream(_clientState.ContentStream)); }
         }
 
-        public string ContentType { get; set; }
-        public string ContentCharSet { get; set; }
+        public string ContentType { get; private set; }
+        public string ContentCharSet { get; private set; }
 
         public IDictionary<string, string> Headers
         {
@@ -45,6 +46,8 @@ namespace Niob
         public void ReadHeader(IEnumerable<string> headerLines)
         {
             int i = 0;
+
+            string uriPath = "/";
 
             foreach (string headerLine in headerLines)
             {
@@ -56,8 +59,7 @@ namespace Niob
                         throw new ProtocolViolationException("Invalid request line");
 
                     Method = match.Groups["m"].Value;
-
-                    Uri = match.Groups["u"].Value;
+                    uriPath = match.Groups["u"].Value;
 
                     string version = match.Groups["v"].Value;
                     Version = (version == "1.1") ? HttpVersion.Http11 : HttpVersion.Http10;
@@ -90,6 +92,34 @@ namespace Niob
                     ContentCharSet = parts[1].Replace("charset=", "").Trim();
                 }
             }
+
+            string hostHeader;
+
+            if (Headers.TryGetValue("Host", out hostHeader))
+            {
+                if (!string.IsNullOrEmpty(hostHeader))
+                {
+                    Host = hostHeader;
+                }
+            }
+
+            Url = ReconstructUri(uriPath);
+        }
+
+        private Uri ReconstructUri(string pathAndQuery)
+        {
+            string scheme = _clientState.Binding.Secure ? "https" : "http";
+            string host = (!string.IsNullOrEmpty(Host)) ? Host : _clientState.Binding.IpAddress.ToString();
+            int port = _clientState.Binding.Port;
+
+            string[] parts = pathAndQuery.Split(new[] {'?'}, 2);
+
+            var uri = new UriBuilder(scheme, host, port, parts[0]);
+
+            if (parts.Length > 1)
+                uri.Query = parts[1];
+
+            return uri.Uri;
         }
     }
 }
