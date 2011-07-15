@@ -20,6 +20,8 @@ namespace Niob
             StatusText = "Not Found";
         }
 
+        internal bool Vetoed { get; set; }
+
         public HttpVersion Version { get; set; }
         public ushort StatusCode { get; set; }
         public string StatusText { get; set; }
@@ -31,6 +33,12 @@ namespace Niob
         public IDictionary<string, string> Headers
         {
             get { return _headers ?? (_headers = new Dictionary<string, string>()); }
+        }
+
+        public bool KeepAlive
+        {
+            get { return _clientState.KeepAlive; }
+            set { _clientState.KeepAlive = value; }
         }
 
         public void WriteHeaders(Stream stream)
@@ -94,6 +102,18 @@ namespace Niob
 
         public void Send()
         {
+            if (Vetoed)
+            {
+                using (ContentStream)
+                {
+                }
+
+                return;
+            }
+
+            if (_clientState.Disposed)
+                return;
+
             _clientState.AddOp(ClientStateOp.PostRendering);
             _clientState.Server.EnqueueAndKickWorkers(_clientState);
         }

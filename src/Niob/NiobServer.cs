@@ -18,7 +18,6 @@ namespace Niob
         public const int TcpBackLogSize = 0x20;
         public const int BigFileThreshold = 0x100000;
 
-        private static readonly TimeSpan Timeout = TimeSpan.FromSeconds(5);
         private static readonly Regex HeaderLineMerge = new Regex(@"\r\n[ \t]+");
 
         private readonly List<Binding> _bindings = new List<Binding>();
@@ -30,6 +29,13 @@ namespace Niob
         private readonly AutoResetEvent _workPending = new AutoResetEvent(false);
 
         private readonly List<Thread> _threads = new List<Thread>();
+
+        public NiobServer()
+        {
+            ReadWriteTimeout = 20;
+            RenderingTimeout = 600;
+            KeepAliveDuration = 100;
+        }
 
         public List<Binding> Bindings
         {
@@ -49,6 +55,11 @@ namespace Niob
         #endregion
 
         public event EventHandler<RequestEventArgs> RequestAccepted;
+        public event EventHandler<RequestEventArgs> RenderTimeout;
+
+        public int ReadWriteTimeout { get; set; }
+        public int RenderingTimeout { get; set; }
+        public int KeepAliveDuration { get; set; }
 
         public void Start()
         {
@@ -70,7 +81,7 @@ namespace Niob
                 listener.Start(binding);
             }
 
-            var janitor = new Thread(HandleKeepAlive) {IsBackground = true};
+            var janitor = new Thread(JanitorThread) {IsBackground = true};
 
             _threads.Add(janitor);
             janitor.Start();
@@ -125,13 +136,15 @@ namespace Niob
             _allClients.TryAdd(clientState.Id, clientState);
         }
 
-        private void HandleKeepAlive()
+        private void JanitorThread()
         {
             const int wait = 1000;
 
             while (!_stopping.WaitOne(wait))
             {
-                long threshold = GetTimestamp() - Timeout.Ticks;
+                long rwThreshold = GetTimestamp() - TimeSpan.FromSeconds(ReadWriteTimeout).Ticks;
+                long reThreshold = GetTimestamp() - TimeSpan.FromSeconds(RenderingTimeout).Ticks;
+                long kaThreshold = GetTimestamp() - TimeSpan.FromSeconds(KeepAliveDuration).Ticks;
 
                 // check sockets for timeouts.
                 foreach (var pair in _allClients)
@@ -141,11 +154,31 @@ namespace Niob
                     if (clientState.Disposed)
                     {
                         RemoveClient(clientState);
+                        continue;
                     }
 
-                    if (clientState.LastActivity < threshold)
+                    if (clientState.HasOp(ClientStateOp.KeepingAlive))
                     {
-                        EndRequest(clientState);
+                        if (clientState.LastActivity < kaThreshold)
+                        {
+                            EndRequest(clientState);
+                        }
+                    }
+                    else if (clientState.HasOp(ClientStateOp.Rendering))
+                    {
+                        if (clientState.LastActivity < reThreshold)
+                        {
+                            // replace the old response
+                            clientState.Response.Vetoed = true;
+                            var response = new HttpResponse(clientState);
+                            clientState.Response = response;
+
+                            OnRenderTimeout(clientState);
+                        }
+                    }
+                    else if (clientState.LastActivity < rwThreshold)
+                    {
+                        DropRequest(clientState);
                     }
                 }
             }
@@ -244,12 +277,11 @@ namespace Niob
                 {
                     clientState.Clear();
 
-                    RecordActivity(clientState);
                     clientState.AddOp(ClientStateOp.KeepingAlive);
+                    RecordActivity(clientState);
+                    ReadAsync(clientState);
 
-                    EnqueueAndKickWorkers(clientState);
-
-                    return "IsWriting -> IsKeepingAlive";
+                    return "IsWriting -> ReadAsync (IsKeepingAlive)";
                 }
 
                 // end.
@@ -257,39 +289,9 @@ namespace Niob
                 return "IsWriting -> end";
             }
 
-            if (clientState.HasOp(ClientStateOp.KeepingAlive))
-            {
-                clientState.RemoveOp(ClientStateOp.KeepingAlive);
-                RecordActivity(clientState);
-
-                ReadAsync(clientState);
-
-                return "IsKeepingAlive -> ReadAsync";
-            }
-
-            if (clientState.HasOp(ClientStateOp.Rendering))
-            {
-                clientState.RemoveOp(ClientStateOp.Rendering);
-                RecordActivity(clientState);
-
-                // revert content stream
-                clientState.Request.ContentStream.Seek(0, SeekOrigin.Begin);
-
-                clientState.Response = new HttpResponse(clientState);
-
-                bool hasHandler = OnRequestAccepted(clientState);
-
-                if (!hasHandler)
-                {
-                    RecordActivity(clientState);
-                    clientState.Response.Send();
-                }
-
-                return "IsRendering -> OnRequestAccepted";
-            }
-
             if (clientState.HasOp(ClientStateOp.PostRendering))
             {
+                clientState.RemoveOp(ClientStateOp.Rendering);
                 clientState.RemoveOp(ClientStateOp.PostRendering);
                 RecordActivity(clientState);
 
@@ -308,6 +310,25 @@ namespace Niob
                 EnqueueAndKickWorkers(clientState);
 
                 return "IsPostRendering -> IsWriting";
+            }
+
+            if (clientState.HasOp(ClientStateOp.Rendering))
+            {
+                RecordActivity(clientState);
+
+                // revert content stream
+                clientState.Request.ContentStream.Seek(0, SeekOrigin.Begin);
+                clientState.Response = new HttpResponse(clientState);
+
+                bool hasHandler = OnRequestAccepted(clientState);
+
+                if (!hasHandler)
+                {
+                    clientState.Response.Send();
+                    return "IsRendering -> IsPostRendering";
+                }
+
+                return "IsRendering -> OnRequestAccepted";
             }
 
             if (clientState.HasOp(ClientStateOp.ExpectingContinue))
@@ -411,6 +432,11 @@ namespace Niob
 
             if (clientState.Disposed)
                 return;
+
+            if (clientState.HasOp(ClientStateOp.KeepingAlive))
+            {
+                clientState.RemoveOp(ClientStateOp.KeepingAlive);
+            }
 
             int inBytes;
 
@@ -691,6 +717,20 @@ namespace Niob
             }
 
             _threads.Clear();
+        }
+
+        private void OnRenderTimeout(ClientState clientState)
+        {
+            var handler = RenderTimeout;
+
+            if (handler != null)
+            {
+                RenderTimeout(this, new RequestEventArgs(clientState));
+            }
+            else
+            {
+                EndRequest(clientState);
+            }
         }
     }
 }

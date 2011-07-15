@@ -9,16 +9,13 @@ namespace Niob
         public RequestEventArgs(ClientState clientState)
         {
             _clientState = clientState;
+
+            // copy the refs
+            Request = _clientState.Request;
+            Response = _clientState.Response;
         }
 
-        public HttpRequest Request
-        {
-            get { return _clientState.Request; }
-        }
-
-        public HttpResponse Response
-        {
-            get { return _clientState.Response; }
-        }
+        public HttpRequest Request { get; private set; }
+        public HttpResponse Response { get; private set; }
     }
 }

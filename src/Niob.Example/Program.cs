@@ -20,8 +20,9 @@ namespace Niob.Example
             var binding = niob.Bindings.Add(IPAddress.Loopback, 666);
             //niob.Bindings.Add(IPAddress.Loopback, 666, true, new X509Certificate2(@"niob.cer"));
 
-            binding.SupportsKeepAlive = false;
+            binding.SupportsKeepAlive = true;
 
+            niob.RenderTimeout += NiobDefaultErrors.ServerError;
             niob.RequestAccepted += HandleRequestAsync;
 
             niob.Start();
@@ -38,7 +39,20 @@ namespace Niob.Example
         {
             // this is just an example, you don't need to do that.
             // however if you don't your worker thread(s) will be clogged.
-            Task.Factory.StartNew(HandleRequest, e);
+            Task.Factory.StartNew(HandleRequestSafe, e);
+        }
+
+        private static void HandleRequestSafe(object state)
+        {
+            // you should really avoid crashing niobs worker thread or
+            // a thread pool thread.
+            try
+            {
+                HandleRequest(state);
+            }
+            catch
+            {
+            }
         }
 
         private static void HandleRequest(object state)
