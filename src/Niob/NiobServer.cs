@@ -35,6 +35,8 @@ namespace Niob
             ReadWriteTimeout = 20;
             RenderingTimeout = 600;
             KeepAliveDuration = 100;
+            WorkerThreadCount = 1;
+            SupportsKeepAlive = true;
         }
 
         public List<Binding> Bindings
@@ -60,12 +62,12 @@ namespace Niob
         public int ReadWriteTimeout { get; set; }
         public int RenderingTimeout { get; set; }
         public int KeepAliveDuration { get; set; }
+        public int WorkerThreadCount { get; set; }
+        public bool SupportsKeepAlive { get; set; }
 
         public void Start()
         {
-            int count = 1;
-
-            for (int i = 0; i < count; i++)
+            for (int i = 0; i < WorkerThreadCount; i++)
             {
                 var worker = new Thread(WorkerThread) {IsBackground = true};
 
@@ -537,7 +539,7 @@ namespace Niob
             {
                 int headerLength = -1;
                 long contentLength = -1;
-                bool keepAlive = clientState.Binding.SupportsKeepAlive;
+                bool keepAlive = clientState.Server.SupportsKeepAlive;
 
                 byte[] headerBytes = clientState.HeaderStream.ToArray();
 
@@ -591,7 +593,7 @@ namespace Niob
                         }
                     }
 
-                    if (clientState.Binding.SupportsKeepAlive)
+                    if (clientState.Server.SupportsKeepAlive)
                     {
                         string connectionHeader;
 
