@@ -211,6 +211,21 @@ namespace Niob
             BytesRead = 0;
             RequestHeaders.Clear();
             RequestHeaderLines.Clear();
+
+            if (Request != null)
+            {
+                using (Request.ContentStream)
+                {
+                }
+            }
+
+            if (Response != null)
+            {
+                using (Response.ContentStream)
+                {
+                }
+            }
+
             Request = null;
             Response = null;
 
