@@ -4,15 +4,13 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Security.Cryptography.X509Certificates;
-using System.Text;
 using System.Threading.Tasks;
+using Niob.SimpleHtml;
 
 namespace Niob.Example
 {
     internal class Program
     {
-        public static string con = @"[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]";
-
         private static void Main(string[] args)
         {
             var niob = new NiobServer();
@@ -44,30 +42,51 @@ namespace Niob.Example
 
         private static void HandleRequestSafe(object state)
         {
+            var e = (RequestEventArgs) state;
+
             // you should really avoid crashing niobs worker thread or
             // a thread pool thread.
             try
             {
-                HandleRequest(state);
+                HandleRequest(e);
             }
             catch
             {
+                NiobDefaultErrors.ServerError(null, e);
             }
         }
 
-        private static void HandleRequest(object state)
+        private static void HandleRequest(RequestEventArgs e)
         {
-            var e = (RequestEventArgs) state;
-
             e.Response.StatusCode = 200;
             e.Response.StatusText = "kay";
-            e.Response.Version = HttpVersion.Http10;
+            e.Response.Version = HttpVersion.Http11;
 
-            e.Response.ContentType = "application/json";
-            e.Response.ContentCharSet = "utf-8";
-            e.Response.ContentStream = new MemoryStream(Encoding.UTF8.GetBytes(con));
+            // cache for easier benchmarking against iis (caches files < 256 KB).
+            if (_cache == null)
+            {
+                e.Response.ContentStream = new MemoryStream();
+
+                e.Response.StartHtml("Niob");
+                e.Response.AppendHtml("<h1>Niob</h1>");
+                e.Response.AppendHtml("<p>Small and efficient webserver for embedding in your application.</p>");
+                e.Response.AppendHtml("<p>This page is 128 KiB big.</p>");
+                e.Response.AppendHtml("\n<!--|");
+                e.Response.AppendHtml("".PadLeft(128*1024 - 235, ' '));
+                e.Response.AppendHtml("|");
+                e.Response.AppendHtml("-->\n");
+                e.Response.EndHtml();
+
+                _cache = ((MemoryStream) e.Response.ContentStream).ToArray();
+            }
+            else
+            {
+                e.Response.ContentStream = new MemoryStream(_cache);
+            }
 
             e.Response.Send();
         }
+
+        private static byte[] _cache;
     }
 }
