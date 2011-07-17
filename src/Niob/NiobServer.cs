@@ -541,27 +541,42 @@ namespace Niob
                 long contentLength = -1;
                 bool keepAlive = clientState.Server.SupportsKeepAlive;
 
-                byte[] headerBytes = clientState.HeaderStream.ToArray();
+                long position = clientState.HeaderStream.Position;
+                clientState.HeaderStream.Position = 0;
 
-                if (headerBytes.Length >= 4)
+                for (int i = 0, b; (b = clientState.HeaderStream.ReadByte()) >= 0; i++)
                 {
-                    for (int i = headerBytes.Length - 4; i >= Math.Max(0, headerBytes.Length - ClientBufferSize - 4); i--)
+                    if (headerLength == -1 && b == '\r')
                     {
-                        if (headerBytes[i + 0] == '\r' && headerBytes[i + 1] == '\n' &&
-                            headerBytes[i + 2] == '\r' && headerBytes[i + 3] == '\n')
-                        {
-                            headerLength = i + 4;
-                            break;
-                        }
+                        headerLength++;
+                    }
+                    else if (headerLength == 0 && b == '\n')
+                    {
+                        headerLength++;
+                    }
+                    else if (headerLength == 1 && b == '\r')
+                    {
+                        headerLength++;
+                    }
+                    else if (headerLength == 2 && b == '\n')
+                    {
+                        headerLength = i + 1;
+                        break;
+                    }
+                    else
+                    {
+                        headerLength = -1;
                     }
                 }
+
+                clientState.HeaderStream.Position = position;
 
                 if (headerLength == -1)
                 {
                     // no header end found
                     // check max header length
 
-                    if (headerBytes.Length > MaxHeaderSize)
+                    if (clientState.HeaderStream.Length > MaxHeaderSize)
                     {
                         throw new ProtocolViolationException("Header too big.");
                     }
@@ -574,8 +589,11 @@ namespace Niob
 
                     // header found. read the content-length http header
                     // to determine if we should continue reading.
-                    string header = Encoding.ASCII.GetString(headerBytes, 0, headerLength);
-
+                    var buffer = new byte[headerLength];
+                    clientState.HeaderStream.Position = 0;
+                    clientState.HeaderStream.Read(buffer, 0, headerLength);
+                    string header = Encoding.ASCII.GetString(buffer);
+                    
                     // merge continuations
                     header = HeaderLineMerge.Replace(header, " ");
 
