@@ -14,7 +14,7 @@ namespace Niob
     public class NiobServer : IDisposable
     {
         public const int MaxHeaderSize = 0x2000;
-        public const int ClientBufferSize = 0x1000;
+        public const int ClientBufferSize = 0x2000;
         public const int TcpBackLogSize = 0x40;
         public const int BigFileThreshold = 0x100000;
 
