@@ -125,6 +125,9 @@ namespace Niob
                     break;
                 }
 
+                client.SendBufferSize = ClientBufferSize;
+                client.ReceiveBufferSize = ClientBufferSize;
+
                 var clientState = new ClientState(client, binding, this);
                 clientState.AddOp(ClientStateOp.Reading);
                 RecordActivity(clientState);
