@@ -326,8 +326,8 @@ namespace Niob
 
                 if (!hasHandler)
                 {
-                    clientState.Response.Send();
-                    return "IsRendering -> IsPostRendering";
+                    NiobDefaultErrors.ServerError(null, new RequestEventArgs(clientState));
+                    return "IsRendering -> ServerError";
                 }
 
                 return "IsRendering -> OnRequestAccepted";
@@ -361,16 +361,23 @@ namespace Niob
         {
             EventHandler<RequestEventArgs> handler = RequestAccepted;
 
-            if (handler != null)
+            if (handler == null)
             {
-                var eventArgs = new RequestEventArgs(clientState);
-
-                handler(this, eventArgs);
-
-                return true;
+                return false;
             }
 
-            return false;
+            var eventArgs = new RequestEventArgs(clientState);
+
+            try
+            {
+                handler(this, eventArgs);
+            }
+            catch
+            {
+                return false;
+            }
+
+            return true;
         }
 
         private void ReadAsync(ClientState clientState)
