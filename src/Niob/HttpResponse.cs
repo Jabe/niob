@@ -15,7 +15,15 @@ namespace Niob
         {
             _clientState = clientState;
 
-            Version = HttpVersion.Http10;
+            if (clientState.Request != null)
+            {
+                Version = clientState.Request.Version;
+            }
+            else
+            {
+                Version = HttpVersion.Http10;
+            }
+            
             StatusCode = 404;
             StatusText = "Not Found";
         }
@@ -30,15 +38,15 @@ namespace Niob
         public string ContentType { get; set; }
         public string ContentCharSet { get; set; }
 
-        public IDictionary<string, string> Headers
-        {
-            get { return _headers ?? (_headers = new Dictionary<string, string>()); }
-        }
-
         public bool KeepAlive
         {
             get { return _clientState.KeepAlive; }
             set { _clientState.KeepAlive = value; }
+        }
+
+        public IDictionary<string, string> Headers
+        {
+            get { return _headers ?? (_headers = new Dictionary<string, string>()); }
         }
 
         public void WriteHeaders(Stream stream)
@@ -77,7 +85,7 @@ namespace Niob
                 writer.Write("\r\n");
             }
 
-            if (_clientState.KeepAlive)
+            if (KeepAlive)
             {
                 writer.Write("Connection: keep-alive");
                 writer.Write("\r\n");
@@ -113,6 +121,10 @@ namespace Niob
 
             if (_clientState.Disposed)
                 return;
+
+            // make sure the r/w states arn't set (for error responses)
+            _clientState.RemoveOp(ClientStateOp.Reading);
+            _clientState.RemoveOp(ClientStateOp.Writing);
 
             _clientState.AddOp(ClientStateOp.PostRendering);
             _clientState.Server.EnqueueAndKickWorkers(_clientState);

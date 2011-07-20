@@ -53,10 +53,10 @@ namespace Niob
 
         public Stream ContentStream { get; set; }
 
+        public bool KeepAlive { get; set; }
         public int HeaderLength { get; set; }
         public long ContentLength { get; set; }
         public long BytesRead { get; set; }
-        public bool KeepAlive { get; set; }
         
         public Stream OutStream { get; set; }
 

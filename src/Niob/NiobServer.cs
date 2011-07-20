@@ -8,6 +8,7 @@ using System.Net.Sockets;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading;
+using Niob.SimpleErrors;
 
 namespace Niob
 {
@@ -37,6 +38,8 @@ namespace Niob
             KeepAliveDuration = 100;
             WorkerThreadCount = 1;
             SupportsKeepAlive = true;
+
+            RenderTimeout += (sender, e) => e.Response.SendError(500);
         }
 
         public List<Binding> Bindings
@@ -173,17 +176,20 @@ namespace Niob
                     {
                         if (clientState.LastActivity < reThreshold)
                         {
-                            // replace the old response
-                            clientState.Response.Vetoed = true;
-                            var response = new HttpResponse(clientState);
-                            clientState.Response = response;
-
+                            OverrideResponse(clientState);
                             OnRenderTimeout(clientState);
                         }
                     }
                     else if (clientState.LastActivity < rwThreshold)
                     {
-                        EndRequest(clientState);
+                        if (clientState.HasOp(ClientStateOp.Reading))
+                        {
+                            OverrideResponse(clientState).SendError(408);
+                        }
+                        else
+                        {
+                            EndRequest(clientState);
+                        }
                     }
                 }
             }
@@ -222,7 +228,6 @@ namespace Niob
 
             if (clientState.HasOp(ClientStateOp.Reading))
             {
-                clientState.RemoveOp(ClientStateOp.Reading);
                 RecordActivity(clientState);
 
                 bool continueRead;
@@ -233,7 +238,7 @@ namespace Niob
                 }
                 catch (Exception)
                 {
-                    EndRequest(clientState);
+                    OverrideResponse(clientState).SendError(400);
                     return "IsReading -> end.";
                 }
 
@@ -246,10 +251,12 @@ namespace Niob
 
                 if (clientState.HasOp(ClientStateOp.ExpectingContinue))
                 {
+                    clientState.RemoveOp(ClientStateOp.Reading);
                     EnqueueAndKickWorkers(clientState);
                     return "IsReading -> IsExpectingContinue";
                 }
 
+                clientState.RemoveOp(ClientStateOp.Reading);
                 clientState.AddOp(ClientStateOp.Rendering);
                 EnqueueAndKickWorkers(clientState);
 
@@ -258,7 +265,6 @@ namespace Niob
 
             if (clientState.HasOp(ClientStateOp.Writing))
             {
-                clientState.RemoveOp(ClientStateOp.Writing);
                 RecordActivity(clientState);
 
                 long bytesToSend = clientState.OutStream.Length;
@@ -274,12 +280,14 @@ namespace Niob
                 
                 if (clientState.HasOp(ClientStateOp.PostExpectingContinue))
                 {
+                    clientState.RemoveOp(ClientStateOp.Writing);
                     EnqueueAndKickWorkers(clientState);
                     return "IsWriting -> IsPostExpectingContinue";
                 }
 
-                if (clientState.KeepAlive)
+                if (clientState.Response.KeepAlive)
                 {
+                    clientState.RemoveOp(ClientStateOp.Writing);
                     clientState.Clear();
 
                     clientState.AddOp(ClientStateOp.KeepingAlive);
@@ -290,6 +298,7 @@ namespace Niob
                 }
 
                 // end.
+                clientState.RemoveOp(ClientStateOp.Writing);
                 EndRequest(clientState);
                 return "IsWriting -> end";
             }
@@ -329,7 +338,7 @@ namespace Niob
 
                 if (!hasHandler)
                 {
-                    NiobDefaultErrors.ServerError(null, new RequestEventArgs(clientState));
+                    clientState.Response.SendError(500);
                     return "IsRendering -> ServerError";
                 }
 
@@ -421,6 +430,8 @@ namespace Niob
         {
             var clientState = (ClientState) ar.AsyncState;
 
+            clientState.RemoveOp(ClientStateOp.Writing);
+
             if (clientState.Disposed)
                 return;
 
@@ -441,6 +452,8 @@ namespace Niob
         private void ReadCallback(IAsyncResult ar)
         {
             var clientState = (ClientState) ar.AsyncState;
+
+            clientState.RemoveOp(ClientStateOp.Reading);
 
             if (clientState.Disposed)
                 return;
@@ -530,10 +543,11 @@ namespace Niob
             {
                 int headerLength = -1;
                 long contentLength = -1;
-                bool keepAlive = clientState.Server.SupportsKeepAlive;
 
                 long position = clientState.HeaderStream.Position;
                 clientState.HeaderStream.Position = 0;
+
+                bool found = false;
 
                 for (int i = 0, b; (b = clientState.HeaderStream.ReadByte()) >= 0; i++)
                 {
@@ -552,6 +566,7 @@ namespace Niob
                     else if (headerLength == 2 && b == '\n')
                     {
                         headerLength = i + 1;
+                        found = true;
                         break;
                     }
                     else
@@ -559,6 +574,8 @@ namespace Niob
                         headerLength = -1;
                     }
                 }
+
+                if (!found) headerLength = -1;
 
                 clientState.HeaderStream.Position = position;
 
@@ -602,29 +619,11 @@ namespace Niob
                         }
                     }
 
-                    if (clientState.Server.SupportsKeepAlive)
-                    {
-                        string connectionHeader;
-
-                        if (clientState.Request.Headers.TryGetValue("Connection", out connectionHeader))
-                        {
-                            if (StringComparer.OrdinalIgnoreCase.Compare(connectionHeader, "keep-alive") < 0)
-                            {
-                                keepAlive = false;
-                            }
-                        }
-                        else
-                        {
-                            // decide by version
-                            keepAlive = (clientState.Request.Version != HttpVersion.Http10);
-                        }
-                    }
-
                     string expectHeader;
 
                     if (clientState.Request.Headers.TryGetValue("Expect", out expectHeader))
                     {
-                        if (StringComparer.OrdinalIgnoreCase.Compare(expectHeader, "100-continue") >= 0)
+                        if (StringComparer.OrdinalIgnoreCase.Equals(expectHeader, "100-continue"))
                         {
                             clientState.AddOp(ClientStateOp.ExpectingContinue);
                         }
@@ -656,7 +655,6 @@ namespace Niob
 
                 clientState.HeaderLength = headerLength;
                 clientState.ContentLength = contentLength;
-                clientState.KeepAlive = keepAlive;
             }
 
             // we got the header...
@@ -742,6 +740,14 @@ namespace Niob
             {
                 EndRequest(clientState);
             }
+        }
+
+        private static HttpResponse OverrideResponse(ClientState clientState)
+        {
+            if (clientState.Response != null)
+                clientState.Response.Vetoed = true;
+
+            return clientState.Response = new HttpResponse(clientState);
         }
     }
 }

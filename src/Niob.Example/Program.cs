@@ -6,6 +6,7 @@ using System.Net;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading.Tasks;
 using Niob.SimpleHtml;
+using Niob.SimpleErrors;
 
 namespace Niob.Example
 {
@@ -20,7 +21,6 @@ namespace Niob.Example
 
             niob.SupportsKeepAlive = true;
             niob.WorkerThreadCount = 4;
-            niob.RenderTimeout += NiobDefaultErrors.ServerError;
             niob.RequestAccepted += HandleRequestAsync;
 
             niob.Start();
@@ -52,7 +52,7 @@ namespace Niob.Example
             }
             catch
             {
-                NiobDefaultErrors.ServerError(null, e);
+                e.Response.SendError(500);
             }
         }
 
@@ -60,7 +60,6 @@ namespace Niob.Example
         {
             e.Response.StatusCode = 200;
             e.Response.StatusText = "kay";
-            e.Response.Version = HttpVersion.Http11;
 
             // cache for easier benchmarking against iis (caches files < 256 KB).
             if (_cache == null)

@@ -30,6 +30,8 @@ namespace Niob
         public Uri Url { get; private set; }
         public HttpVersion Version { get; private set; }
 
+        public bool KeepAlive { get { return _clientState.KeepAlive; } }
+
         public Stream ContentStream
         {
             get { return _contentStream ?? (_contentStream = new ReadOnlyStream(_clientState.ContentStream)); }
@@ -102,6 +104,19 @@ namespace Niob
                     Host = hostHeader;
                 }
             }
+
+            bool keepAlive = _clientState.Server.SupportsKeepAlive &&
+                             _clientState.Request.Version != HttpVersion.Http10;
+
+            string connectionHeader;
+
+            if (_clientState.Request.Headers.TryGetValue("Connection", out connectionHeader))
+            {
+                keepAlive = StringComparer.OrdinalIgnoreCase.Equals(connectionHeader, "keep-alive");
+            }
+
+            // set on the connection
+            _clientState.KeepAlive = keepAlive;
 
             Url = ReconstructUri(uriPath);
         }
