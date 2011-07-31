@@ -23,6 +23,8 @@ namespace Niob.Example
             niob.WorkerThreadCount = 4;
             niob.RequestAccepted += HandleRequestAsync;
 
+            niob.DosThreshold = 100000;
+
             niob.Start();
 
             Console.WriteLine("started... press enter to stop");

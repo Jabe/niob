@@ -31,6 +31,8 @@ namespace Niob
 
         private readonly List<Thread> _threads = new List<Thread>();
 
+        private readonly ConnectionTracker _dosTracker;
+
         public NiobServer()
         {
             ReadWriteTimeout = 20;
@@ -38,6 +40,10 @@ namespace Niob
             KeepAliveDuration = 100;
             WorkerThreadCount = 1;
             SupportsKeepAlive = true;
+
+            DosPeriod = 20;
+            DosThreshold = 100;
+            _dosTracker = new ConnectionTracker(TimeSpan.FromSeconds(DosPeriod));
 
             RenderTimeout += (sender, e) => e.Response.SendError(500);
         }
@@ -67,6 +73,8 @@ namespace Niob
         public int KeepAliveDuration { get; set; }
         public int WorkerThreadCount { get; set; }
         public bool SupportsKeepAlive { get; set; }
+        public int DosPeriod { get; private set; }
+        public int DosThreshold { get; set; }
 
         public void Start()
         {
@@ -121,6 +129,25 @@ namespace Niob
                 try
                 {
                     client = socket.Accept();
+
+                    var ipep = (IPEndPoint) client.RemoteEndPoint;
+                    string token = ipep.Address.ToString();
+
+                    int count = _dosTracker.GetCount(token);
+
+                    if (count > DosThreshold)
+                    {
+#if DEBUG
+                        Console.WriteLine("blocked potential dos");
+#endif
+
+                        // dos.
+                        client.Close();
+                        client.Dispose();
+                        continue;
+                    }
+
+                    _dosTracker.Track(token);
                 }
                 catch (Exception)
                 {
