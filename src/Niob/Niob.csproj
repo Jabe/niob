@@ -44,7 +44,6 @@
     <Compile Include="BindingExtensions.cs" />
     <Compile Include="ClientState.cs" />
     <Compile Include="ClientStateOp.cs" />
-    <Compile Include="ConnectionTracker.cs" />
     <Compile Include="SimpleErrors\ErrorExtensions.cs" />
     <Compile Include="SimpleHtml\Html.cs" />
     <Compile Include="SimpleHtml\HtmlVersion.cs" />
@@ -58,6 +57,7 @@
     <Compile Include="SimpleRouting\RouteMatch.cs" />
     <Compile Include="SimpleRouting\Router.cs" />
     <Compile Include="SimpleRouting\SimpleRoute.cs" />
+    <Compile Include="TimedCounter.cs" />
     <Compile Include="TimeSpanExtensions.cs" />
   </ItemGroup>
   <ItemGroup />

@@ -31,9 +31,9 @@ namespace Niob
 
         private readonly List<Thread> _threads = new List<Thread>();
 
-        private readonly ConnectionTracker _dosTracker;
+        private readonly TimedCounter _dosCounter;
 
-        public NiobServer()
+        public NiobServer(int dosPeriodInSeconds = 20, int dosThreshold = 100)
         {
             ReadWriteTimeout = 20;
             RenderingTimeout = 600;
@@ -41,11 +41,13 @@ namespace Niob
             WorkerThreadCount = 1;
             SupportsKeepAlive = true;
 
-            DosPeriod = 20;
-            DosThreshold = 100;
-            _dosTracker = new ConnectionTracker(TimeSpan.FromSeconds(DosPeriod));
-
             RenderTimeout += (sender, e) => e.Response.SendError(500);
+
+            // dos stuff
+            DosThreshold = dosThreshold;
+            DosPeriod = dosPeriodInSeconds;
+
+            _dosCounter = new TimedCounter(TimeSpan.FromSeconds(DosPeriod));
         }
 
         public List<Binding> Bindings
@@ -133,7 +135,7 @@ namespace Niob
                     var ipep = (IPEndPoint) client.RemoteEndPoint;
                     string token = ipep.Address.ToString();
 
-                    int count = _dosTracker.GetCount(token);
+                    int count = _dosCounter.GetCount(token);
 
                     if (count > DosThreshold)
                     {
@@ -147,7 +149,7 @@ namespace Niob
                         continue;
                     }
 
-                    _dosTracker.Track(token);
+                    _dosCounter.Increment(token);
                 }
                 catch (Exception)
                 {
