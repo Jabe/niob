@@ -540,7 +540,15 @@ namespace Niob
                 if (!clientState.Disposed)
                 {
                     if (!rst)
-                        clientState.Socket.Shutdown(SocketShutdown.Both);
+                    {
+                        try
+                        {
+                            clientState.Socket.Shutdown(SocketShutdown.Both);
+                        }
+                        catch (SocketException)
+                        {
+                        }
+                    }
 
                     clientState.Socket.Close();
                 }
