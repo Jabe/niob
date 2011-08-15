@@ -39,6 +39,19 @@ namespace Niob.SimpleRouting
             }
         }
 
+        public void AddFirst(string name, string route)
+        {
+            AddFirst(new SimpleRoute(name, route));
+        }
+
+        public void AddFirst(SimpleRoute route)
+        {
+            lock (_routes)
+            {
+                _routes.Insert(0, route);
+            }
+        }
+
         public RouteMatch GetFirstHit(string url)
         {
             return GetFirstHit(new Uri(url));
