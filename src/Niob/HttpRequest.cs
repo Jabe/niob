@@ -23,6 +23,7 @@ namespace Niob
         public HttpRequest(ClientState clientState)
         {
             _clientState = clientState;
+            Client = new HttpClient(_clientState);
         }
 
         public string Host { get; private set; }
@@ -44,6 +45,8 @@ namespace Niob
         {
             get { return _headers ?? (_headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)); }
         }
+
+        public HttpClient Client { get; private set; }
 
         public void ReadHeader(IEnumerable<string> headerLines)
         {

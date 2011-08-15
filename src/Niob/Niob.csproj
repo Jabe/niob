@@ -44,6 +44,7 @@
     <Compile Include="BindingExtensions.cs" />
     <Compile Include="ClientState.cs" />
     <Compile Include="ClientStateOp.cs" />
+    <Compile Include="HttpClient.cs" />
     <Compile Include="SimpleErrors\ErrorExtensions.cs" />
     <Compile Include="SimpleHtml\Html.cs" />
     <Compile Include="SimpleHtml\HtmlVersion.cs" />
