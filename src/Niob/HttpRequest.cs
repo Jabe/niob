@@ -71,7 +71,7 @@ namespace Niob
                 }
                 else
                 {
-                    string[] parts = headerLine.Split(':');
+                    string[] parts = headerLine.Split(new[] {':'}, 2);
                     string key = parts[0].Trim();
                     string value = parts[1].Trim();
 
