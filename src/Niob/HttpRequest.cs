@@ -127,8 +127,15 @@ namespace Niob
         private Uri ReconstructUri(string pathAndQuery)
         {
             string scheme = _clientState.Binding.Secure ? "https" : "http";
-            string host = (!string.IsNullOrEmpty(Host)) ? Host : _clientState.Binding.IpAddress.ToString();
             int port = _clientState.Binding.Port;
+
+            string host = (!string.IsNullOrEmpty(Host)) ? Host : _clientState.Binding.IpAddress.ToString();
+
+            // remove colon from host header
+            int colon = host.IndexOf(':');
+
+            if (colon > 0)
+                host = host.Substring(0, colon);
 
             string[] parts = pathAndQuery.Split(new[] {'?'}, 2);
 
