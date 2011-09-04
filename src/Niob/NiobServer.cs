@@ -19,6 +19,7 @@ namespace Niob
         public const int TcpBackLogSize = 0x40;
         public const int BigFileThreshold = 0x100000;
 
+        private static readonly string[] CrLfArray = new[] {"\r\n"};
         private static readonly Regex HeaderLineMerge = new Regex(@"\r\n[ \t]+");
 
         private readonly List<Binding> _bindings = new List<Binding>();
@@ -634,15 +635,13 @@ namespace Niob
 
                     // header found. read the content-length http header
                     // to determine if we should continue reading.
-                    var buffer = new byte[headerLength];
-                    clientState.HeaderStream.Position = 0;
-                    clientState.HeaderStream.Read(buffer, 0, headerLength);
-                    string header = Encoding.ASCII.GetString(buffer);
-                    
+                    byte[] buffer = clientState.HeaderStream.GetBuffer();
+                    string header = Encoding.ASCII.GetString(buffer, 0, headerLength);
+
                     // merge continuations
                     header = HeaderLineMerge.Replace(header, " ");
 
-                    string[] lines = header.Split(new[] {"\r\n"}, StringSplitOptions.RemoveEmptyEntries);
+                    string[] lines = header.Split(CrLfArray, StringSplitOptions.RemoveEmptyEntries);
 
                     clientState.Request.ReadHeader(lines);
 
@@ -683,11 +682,10 @@ namespace Niob
                         // fix it
                         clientState.HeaderStream.Seek(headerLength, SeekOrigin.Begin);
                         clientState.HeaderStream.CopyTo(clientState.ContentStream);
-                        clientState.HeaderStream.SetLength(headerLength);
                     }
 
                     // we are done with the header stream
-                    clientState.HeaderStream.SetLength(0);
+                    clientState.HeaderStream.Position = 0;
                 }
 
                 clientState.HeaderLength = headerLength;

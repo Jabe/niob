@@ -2,18 +2,16 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Net;
-using System.Text.RegularExpressions;
 
 namespace Niob
 {
     public class HttpRequest
     {
-        private static readonly Regex RequestLineParser =
-            new Regex(
-                @"^(?<m>[a-z]+) " +
-                @"(?<u>[a-z0-9%!*'();:@&=+$,/?#\[\]~._-]+) " +
-                @"HTTP/(?<v>\d\.\d)$",
-                RegexOptions.IgnoreCase);
+        private const string CharSetPrefix = "charset=";
+
+        private static readonly char[] SpaceArray = new[] {' '};
+        private static readonly char[] ColonArray = new[] {':'};
+        private static readonly char[] SemicolonArray = new[] {';'};
 
         private readonly ClientState _clientState;
 
@@ -28,7 +26,7 @@ namespace Niob
 
         public string Host { get; private set; }
         public string Method { get; private set; }
-        public Uri Url { get; private set; }
+        public string Url { get; private set; }
         public HttpVersion Version { get; private set; }
 
         public bool KeepAlive { get { return _clientState.KeepAlive; } }
@@ -58,20 +56,23 @@ namespace Niob
             {
                 if (i == 0)
                 {
-                    Match match = RequestLineParser.Match(headerLine);
+                    string[] parts = headerLine.Split(SpaceArray, 3);
 
-                    if (!match.Success)
-                        throw new ProtocolViolationException("Invalid request line");
+                    if (parts.Length != 3)
+                        FailProtocol();
 
-                    Method = match.Groups["m"].Value;
-                    uriPath = match.Groups["u"].Value;
+                    Method = parts[0].Trim();
+                    uriPath = parts[1].Trim();
 
-                    string version = match.Groups["v"].Value;
-                    Version = (version == "1.1") ? HttpVersion.Http11 : HttpVersion.Http10;
+                    string version = parts[2].Trim();
+
+                    Version = (version.Equals("HTTP/1.1", StringComparison.OrdinalIgnoreCase))
+                                  ? HttpVersion.Http11
+                                  : HttpVersion.Http10;
                 }
                 else
                 {
-                    string[] parts = headerLine.Split(new[] {':'}, 2);
+                    string[] parts = headerLine.Split(ColonArray, 2);
                     string key = parts[0].Trim();
                     string value = parts[1].Trim();
 
@@ -85,16 +86,21 @@ namespace Niob
 
             if (Headers.TryGetValue("Content-Type", out contentTypeHeader))
             {
-                string[] parts = contentTypeHeader.Split(new[] {';'}, 2);
+                string[] parts = contentTypeHeader.Split(SemicolonArray, 2);
 
                 if (parts.Length >= 1)
                 {
                     ContentType = parts[0].Trim();
                 }
 
-                if (parts.Length >= 2 && parts[1].IndexOf("charset=", StringComparison.OrdinalIgnoreCase) >= 0)
+                if (parts.Length >= 2)
                 {
-                    ContentCharSet = parts[1].Replace("charset=", "").Trim();
+                    var part = parts[1].Trim();
+
+                    if (part.StartsWith(CharSetPrefix, StringComparison.OrdinalIgnoreCase))
+                    {
+                        ContentCharSet = part.Substring(CharSetPrefix.Length);
+                    }
                 }
             }
 
@@ -102,10 +108,7 @@ namespace Niob
 
             if (Headers.TryGetValue("Host", out hostHeader))
             {
-                if (!string.IsNullOrEmpty(hostHeader))
-                {
-                    Host = hostHeader;
-                }
+                Host = hostHeader.Trim();
             }
 
             bool keepAlive = _clientState.Server.SupportsKeepAlive &&
@@ -115,7 +118,7 @@ namespace Niob
 
             if (_clientState.Request.Headers.TryGetValue("Connection", out connectionHeader))
             {
-                keepAlive = StringComparer.OrdinalIgnoreCase.Equals(connectionHeader, "keep-alive");
+                keepAlive = connectionHeader.Trim().Equals("keep-alive", StringComparison.OrdinalIgnoreCase);
             }
 
             // set on the connection
@@ -124,12 +127,14 @@ namespace Niob
             Url = ReconstructUri(uriPath);
         }
 
-        private Uri ReconstructUri(string pathAndQuery)
+        private string ReconstructUri(string pathAndQuery)
         {
             string scheme = _clientState.Binding.Secure ? "https" : "http";
             int port = _clientState.Binding.Port;
 
-            string host = (!string.IsNullOrEmpty(Host)) ? Host : _clientState.Binding.IpAddress.ToString();
+            string host = string.IsNullOrEmpty(Host)
+                              ? _clientState.Binding.IpAddress.ToString()
+                              : Host;
 
             // remove colon from host header
             int colon = host.IndexOf(':');
@@ -137,14 +142,21 @@ namespace Niob
             if (colon > 0)
                 host = host.Substring(0, colon);
 
-            string[] parts = pathAndQuery.Split(new[] {'?'}, 2);
+            string uri = scheme + "://" + host;
 
-            var uri = new UriBuilder(scheme, host, port, parts[0]);
+            if (!(scheme == "http" && port == 80 || scheme == "https" && port == 443))
+            {
+                uri += ":" + port;
+            }
 
-            if (parts.Length > 1)
-                uri.Query = parts[1];
+            uri += pathAndQuery;
 
-            return uri.Uri;
+            return uri;
+        }
+
+        private static void FailProtocol()
+        {
+            throw new ProtocolViolationException("Invalid request line");
         }
     }
 }
