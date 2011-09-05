@@ -581,41 +581,51 @@ namespace Niob
             {
                 int headerLength = -1;
                 long contentLength = -1;
+                int scanStart = clientState.LastHeaderEndOffset;
 
-                long position = clientState.HeaderStream.Position;
-                clientState.HeaderStream.Position = 0;
+                // revert 3 bytes
+                scanStart -= 3;
 
-                bool found = false;
+                if (scanStart < 0)
+                    scanStart = 0;
 
-                for (int i = 0, b; (b = clientState.HeaderStream.ReadByte()) >= 0; i++)
+                // ref to internal buffer
+                byte[] buffer = clientState.HeaderStream.GetBuffer();
+
+                int seq = 0;
+
+                for (int i = scanStart; i < clientState.HeaderStream.Length; i++)
                 {
-                    if (headerLength == -1 && b == '\r')
+                    if (seq == 0 && buffer[i] == '\r')
                     {
-                        headerLength++;
+                        seq++;
                     }
-                    else if (headerLength == 0 && b == '\n')
+                    else if (seq == 1 && buffer[i] == '\n')
                     {
-                        headerLength++;
+                        seq++;
                     }
-                    else if (headerLength == 1 && b == '\r')
+                    else if (seq == 2 && buffer[i] == '\r')
                     {
-                        headerLength++;
+                        seq++;
                     }
-                    else if (headerLength == 2 && b == '\n')
+                    else if (seq == 3 && buffer[i] == '\n')
                     {
+                        seq++;
                         headerLength = i + 1;
-                        found = true;
                         break;
                     }
                     else
                     {
-                        headerLength = -1;
+                        seq = 0;
                     }
                 }
 
-                if (!found) headerLength = -1;
+                if (seq != 4)
+                {
+                    headerLength = -1;
+                }
 
-                clientState.HeaderStream.Position = position;
+                clientState.LastHeaderEndOffset = (int) clientState.HeaderStream.Length;
 
                 if (headerLength == -1)
                 {
@@ -635,7 +645,6 @@ namespace Niob
 
                     // header found. read the content-length http header
                     // to determine if we should continue reading.
-                    byte[] buffer = clientState.HeaderStream.GetBuffer();
                     string header = Encoding.ASCII.GetString(buffer, 0, headerLength);
 
                     // merge continuations

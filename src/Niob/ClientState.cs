@@ -132,6 +132,7 @@ namespace Niob
         }
 
         public string ContentStreamFile { get; set; }
+        public int LastHeaderEndOffset { get; set; }
 
         #region IDisposable Members
 
@@ -208,6 +209,7 @@ namespace Niob
         {
             HeaderLength = -1;
             ContentLength = -1;
+            LastHeaderEndOffset = -1;
             BytesRead = 0;
             RequestHeaders.Clear();
             RequestHeaderLines.Clear();
