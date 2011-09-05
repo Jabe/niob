@@ -574,6 +574,10 @@ namespace Niob
 
         private static bool ShouldContinueReading(ClientState clientState)
         {
+            // shortcut
+            if (clientState.HeaderLength == -1 && clientState.HeaderStream.Length == 0)
+                return true;
+
             bool continueRead = false;
 
             // check if we got the complete header
