@@ -315,7 +315,7 @@ namespace Niob
                     return "IsWriting -> IsPostExpectingContinue";
                 }
 
-                if (clientState.Response.KeepAlive)
+                if (clientState.Response != null && clientState.Response.KeepAlive)
                 {
                     clientState.RemoveOp(ClientStateOp.Writing);
                     clientState.Clear();
