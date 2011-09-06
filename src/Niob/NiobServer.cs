@@ -22,6 +22,7 @@ namespace Niob
         private static readonly string[] CrLfArray = new[] {"\r\n"};
         private static readonly Regex HeaderLineMerge = new Regex(@"\r\n[ \t]+");
 
+        private readonly EventWaitHandle[] _globalWorkHandles;
         private readonly List<Binding> _bindings = new List<Binding>();
         private readonly ConcurrentDictionary<Guid, ClientState> _allClients = new ConcurrentDictionary<Guid, ClientState>();
         private readonly ConcurrentQueue<ClientState> _clients = new ConcurrentQueue<ClientState>();
@@ -36,6 +37,8 @@ namespace Niob
 
         public NiobServer(int dosPeriodInSeconds = 20, int dosThreshold = 100)
         {
+            _globalWorkHandles = new EventWaitHandle[] {_workPending, _stopping};
+
             ReadWriteTimeout = 20;
             RenderingTimeout = 600;
             KeepAliveDuration = 100;
@@ -227,18 +230,18 @@ namespace Niob
 
         private void WorkerThread()
         {
-            // Scan queue
+            // check the stopping flag but dont wait
             while (!_stopping.WaitOne(0))
             {
                 ClientState clientState;
 
-                _clients.TryDequeue(out clientState);
-
-                if (clientState == null)
+                // got work?
+                if (!_clients.TryDequeue(out clientState) || clientState == null)
                 {
-                    const int maxIdleTime = 1000;
-
-                    _workPending.WaitOne(maxIdleTime);
+                    // no work. wait for any handle but don't care for which one.
+                    // why? let the loop handle that decision. or somebody else.
+                    // threading is black magic.
+                    WaitHandle.WaitAny(_globalWorkHandles);
                     continue;
                 }
 
