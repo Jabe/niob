@@ -120,7 +120,6 @@ namespace Niob
         private void BindingThread(object state)
         {
             var binding = (Binding) state;
-
             var socket = new Socket(binding.IpAddress.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
 
             _listeningSockets.Add(socket);
@@ -128,48 +127,109 @@ namespace Niob
             socket.Bind(new IPEndPoint(binding.IpAddress, binding.Port));
             socket.Listen(TcpBackLogSize);
 
-            while (!_stopping.WaitOne(0))
+            var args = new SocketAsyncEventArgs();
+            args.Completed += (sender, e) => AcceptCallback(socket, binding, args, true);
+
+            SocketAccept(socket, binding, args);
+        }
+
+        private void SocketAccept(Socket socket, Binding binding, SocketAsyncEventArgs e)
+        {
+            while (true)
             {
-                Socket client;
+                bool async;
 
                 try
                 {
-                    client = socket.Accept();
-
-                    var ipep = (IPEndPoint) client.RemoteEndPoint;
-                    string token = ipep.Address.ToString();
-
-                    int count = _dosCounter.GetCount(token);
-
-                    if (count > DosThreshold)
-                    {
-#if DEBUG
-                        Console.WriteLine("blocked potential dos");
-#endif
-
-                        // dos.
-                        client.Close();
-                        client.Dispose();
-                        continue;
-                    }
-
-                    _dosCounter.Increment(token);
+                    async = socket.AcceptAsync(e);
                 }
-                catch (Exception)
+                catch
                 {
                     // closed
+                    return;
+                }
+
+                // this pattern prevents stack overflows when we always return sync.
+                if (async)
+                {
                     break;
                 }
 
-                client.SendBufferSize = ClientBufferSize;
-                client.ReceiveBufferSize = ClientBufferSize;
-
-                var clientState = new ClientState(client, binding, this);
-                clientState.AddOp(ClientStateOp.Reading);
-                RecordActivity(clientState);
-                AddNewClient(clientState);
-                EnqueueAndKickWorkers(clientState);
+                // completed sync
+                AcceptCallback(socket, binding, e, false);
             }
+        }
+
+        private void AcceptCallback(Socket socket, Binding binding, SocketAsyncEventArgs e, bool async)
+        {
+            // only one operation support yet, hence the name
+            if (e.LastOperation == SocketAsyncOperation.Accept)
+            {
+                Socket client = e.AcceptSocket;
+
+                if (e.SocketError == SocketError.Success && client != null)
+                {
+                    // clear state so we can reuse the state object
+                    e.AcceptSocket = null;
+
+                    IPEndPoint ipep;
+
+                    try
+                    {
+                        ipep = (IPEndPoint) client.RemoteEndPoint;
+                    }
+                    catch (Exception)
+                    {
+                        // closed
+                        return;
+                    }
+
+                    if (IsDos(ipep))
+                    {
+                        try
+                        {
+                            client.Close();
+                            client.Dispose();
+                        }
+                        catch (Exception)
+                        {
+                        }
+
+                        return;
+                    }
+
+                    client.SendBufferSize = ClientBufferSize;
+                    client.ReceiveBufferSize = ClientBufferSize;
+
+                    var clientState = new ClientState(client, binding, this);
+                    clientState.AddOp(ClientStateOp.Reading);
+                    RecordActivity(clientState);
+                    AddNewClient(clientState);
+                    EnqueueAndKickWorkers(clientState);
+                }
+
+                if (async)
+                {
+                    // start new accept, but only if we didnt ran sync
+                    SocketAccept(socket, binding, e);
+                }
+            }
+        }
+
+        private bool IsDos(IPEndPoint ipep)
+        {
+            string token = ipep.Address.ToString();
+            int count = _dosCounter.GetCount(token);
+
+            if (count > DosThreshold)
+            {
+                // dos
+                return true;
+            }
+
+            _dosCounter.Increment(token);
+
+            return false;
         }
 
         private void AddNewClient(ClientState clientState)
