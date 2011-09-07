@@ -111,14 +111,20 @@ namespace Niob
                 Host = hostHeader.Trim();
             }
 
-            bool keepAlive = _clientState.Server.SupportsKeepAlive &&
-                             _clientState.Request.Version != HttpVersion.Http10;
+            bool keepAlive = false;
 
-            string connectionHeader;
-
-            if (_clientState.Request.Headers.TryGetValue("Connection", out connectionHeader))
+            if (_clientState.Server.SupportsKeepAlive)
             {
-                keepAlive = connectionHeader.Trim().Equals("keep-alive", StringComparison.OrdinalIgnoreCase);
+                // default by protocol
+                keepAlive = (_clientState.Request.Version != HttpVersion.Http10);
+
+                string connectionHeader;
+
+                // overrideable by explicit header. backported to http10
+                if (_clientState.Request.Headers.TryGetValue("Connection", out connectionHeader))
+                {
+                    keepAlive = connectionHeader.Trim().Equals("keep-alive", StringComparison.OrdinalIgnoreCase);
+                }
             }
 
             // set on the connection
