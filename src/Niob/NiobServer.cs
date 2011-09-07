@@ -22,23 +22,19 @@ namespace Niob
         private static readonly string[] CrLfArray = new[] {"\r\n"};
         private static readonly Regex HeaderLineMerge = new Regex(@"\r\n[ \t]+");
 
-        private readonly EventWaitHandle[] _globalWorkHandles;
         private readonly List<Binding> _bindings = new List<Binding>();
         private readonly ConcurrentDictionary<Guid, ClientState> _allClients = new ConcurrentDictionary<Guid, ClientState>();
         private readonly ConcurrentQueue<ClientState> _clients = new ConcurrentQueue<ClientState>();
         private readonly ConcurrentBag<Socket> _listeningSockets = new ConcurrentBag<Socket>();
-
-        private readonly ManualResetEvent _stopping = new ManualResetEvent(false);
-        private readonly AutoResetEvent _workPending = new AutoResetEvent(false);
-
         private readonly List<Thread> _threads = new List<Thread>();
-
         private readonly TimedCounter _dosCounter;
+
+        private bool _disposed;
+        private CancellationTokenSource _stopSource;
+        private AutoResetEvent _workPending = new AutoResetEvent(false);
 
         public NiobServer(int dosPeriodInSeconds = 20, int dosThreshold = 100)
         {
-            _globalWorkHandles = new EventWaitHandle[] {_workPending, _stopping};
-
             ReadWriteTimeout = 20;
             RenderingTimeout = 600;
             KeepAliveDuration = 100;
@@ -63,9 +59,22 @@ namespace Niob
 
         public void Dispose()
         {
-            if (!_stopping.WaitOne(0))
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+
+            if (!_stopSource.IsCancellationRequested)
             {
                 Stop();
+            }
+
+            if (_workPending != null)
+            {
+                _workPending.Dispose();
+                _workPending = null;
             }
         }
 
@@ -84,6 +93,14 @@ namespace Niob
 
         public void Start()
         {
+            if (_disposed)
+                throw new ObjectDisposedException(GetType().Name);
+
+            if (_stopSource != null)
+                return;
+
+            _stopSource = new CancellationTokenSource();
+
             for (int i = 0; i < WorkerThreadCount; i++)
             {
                 var worker = new Thread(WorkerThread) {IsBackground = true};
@@ -241,7 +258,7 @@ namespace Niob
         {
             const int wait = 1000;
 
-            while (!_stopping.WaitOne(wait))
+            while (!_stopSource.Token.WaitHandle.WaitOne(wait))
             {
                 long rwThreshold = GetTimestamp() - TimeSpan.FromSeconds(ReadWriteTimeout).Ticks;
                 long reThreshold = GetTimestamp() - TimeSpan.FromSeconds(RenderingTimeout).Ticks;
@@ -290,23 +307,24 @@ namespace Niob
 
         private void WorkerThread()
         {
-            // check the stopping flag but dont wait
-            while (!_stopping.WaitOne(0))
+            // check the stopping flag
+            while (!_stopSource.IsCancellationRequested)
             {
                 ClientState clientState;
 
                 // got work?
                 if (!_clients.TryDequeue(out clientState) || clientState == null)
                 {
-                    // no work. wait for any handle but don't care for which one.
-                    // why? let the loop handle that decision. or somebody else.
-                    // threading is black magic.
-                    WaitHandle.WaitAny(_globalWorkHandles);
+                    // no work. wait for the "there might be something of interest" signal to fire.
+                    _workPending.WaitOne();
                     continue;
                 }
 
                 WorkerThreadImpl(clientState);
             }
+
+            // this thread exited. notify the others. this ensures clean shutdown.
+            KickWorkers();
         }
 
         private string WorkerThreadImpl(ClientState clientState)
@@ -611,7 +629,7 @@ namespace Niob
                         {
                             clientState.Socket.Shutdown(SocketShutdown.Both);
                         }
-                        catch (SocketException)
+                        catch
                         {
                         }
                     }
@@ -801,8 +819,13 @@ namespace Niob
 
         public void Stop()
         {
-            _stopping.Set();
+            if (_disposed)
+                throw new ObjectDisposedException(GetType().Name);
 
+            if (_stopSource == null)
+                return;
+
+            // first close the listeners
             while (!_listeningSockets.IsEmpty)
             {
                 Socket socket;
@@ -815,6 +838,18 @@ namespace Niob
                 }
             }
 
+            // cancel the workers
+            _stopSource.Cancel();
+            KickWorkers();
+
+            foreach (Thread thread in _threads)
+            {
+                thread.Join();
+            }
+
+            _threads.Clear();
+
+            // clear all queued client states
             while (!_clients.IsEmpty)
             {
                 ClientState state;
@@ -824,6 +859,7 @@ namespace Niob
                 EndRequest(state);
             }
 
+            // clear all client states
             foreach (var kv in _allClients)
             {
                 EndRequest(kv.Value);
@@ -831,12 +867,8 @@ namespace Niob
 
             _allClients.Clear();
 
-            foreach (Thread thread in _threads)
-            {
-                thread.Join();
-            }
-
-            _threads.Clear();
+            _stopSource.Dispose();
+            _stopSource = null;
         }
 
         private void OnRenderTimeout(ClientState clientState)
