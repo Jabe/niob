@@ -20,7 +20,7 @@ namespace Niob.Example
             //niob.Bindings.Add(IPAddress.Loopback, 666, true, new X509Certificate2(@"niob.cer"));
 
             niob.SupportsKeepAlive = true;
-            niob.WorkerThreadCount = 4;
+            niob.WorkerThreadCount = 2;
             niob.RequestAccepted += HandleRequestAsync;
 
             niob.DosThreshold = 100000;

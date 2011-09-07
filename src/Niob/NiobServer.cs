@@ -38,7 +38,7 @@ namespace Niob
             ReadWriteTimeout = 20;
             RenderingTimeout = 600;
             KeepAliveDuration = 100;
-            WorkerThreadCount = 1;
+            WorkerThreadCount = 2;
             SupportsKeepAlive = true;
 
             RenderTimeout += (sender, e) => e.Response.SendError(500);
