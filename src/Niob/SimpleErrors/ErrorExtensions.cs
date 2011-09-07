@@ -18,6 +18,9 @@ namespace Niob.SimpleErrors
                 case 404:
                     response.SendError(code, "Not Found", "The requested resource could not be found.");
                     break;
+                case 405:
+                    response.SendError(code, "Method Not Allowed", "A request was made of a resource using a request method not supported by that resource.");
+                    break;
                 case 408:
                     response.SendError(code, "Request Timeout", "The server timed out waiting for your request.");
                     break;
