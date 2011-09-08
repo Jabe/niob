@@ -96,16 +96,6 @@ namespace Niob
             get { return _disposed; }
         }
 
-        public List<string> RequestHeaderLines
-        {
-            get { return _requestHeaderLines; }
-        }
-
-        public List<KeyValuePair<string, string>> RequestHeaders
-        {
-            get { return _requestHeaders; }
-        }
-
         public HttpRequest Request { get; set; }
         public HttpResponse Response { get; set; }
 
@@ -211,8 +201,6 @@ namespace Niob
             ContentLength = -1;
             LastHeaderEndOffset = -1;
             BytesRead = 0;
-            RequestHeaders.Clear();
-            RequestHeaderLines.Clear();
 
             if (Request != null)
             {
