@@ -260,9 +260,10 @@ namespace Niob
 
             while (!_stopSource.Token.WaitHandle.WaitOne(wait))
             {
-                long rwThreshold = GetTimestamp() - TimeSpan.FromSeconds(ReadWriteTimeout).Ticks;
-                long reThreshold = GetTimestamp() - TimeSpan.FromSeconds(RenderingTimeout).Ticks;
-                long kaThreshold = GetTimestamp() - TimeSpan.FromSeconds(KeepAliveDuration).Ticks;
+                long ts = GetTimestamp();
+                long rwThreshold = ts - ReadWriteTimeout*10000000;
+                long reThreshold = ts - RenderingTimeout*10000000;
+                long kaThreshold = ts - KeepAliveDuration*10000000;
 
                 // check sockets for timeouts.
                 foreach (var pair in _allClients)
