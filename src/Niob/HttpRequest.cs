@@ -13,15 +13,15 @@ namespace Niob
         private static readonly char[] ColonArray = new[] {':'};
         private static readonly char[] SemicolonArray = new[] {';'};
 
-        private readonly ClientState _clientState;
+        private readonly ConnectionHandle _connectionHandle;
 
         private ReadOnlyStream _contentStream;
         private Dictionary<string, string> _headers;
 
-        public HttpRequest(ClientState clientState)
+        public HttpRequest(ConnectionHandle connectionHandle)
         {
-            _clientState = clientState;
-            Client = new HttpClient(_clientState);
+            _connectionHandle = connectionHandle;
+            Client = new HttpClient(_connectionHandle);
         }
 
         public string Host { get; private set; }
@@ -29,11 +29,11 @@ namespace Niob
         public string Url { get; private set; }
         public HttpVersion Version { get; private set; }
 
-        public bool KeepAlive { get { return _clientState.KeepAlive; } }
+        public bool KeepAlive { get { return _connectionHandle.KeepAlive; } }
 
         public Stream ContentStream
         {
-            get { return _contentStream ?? (_contentStream = new ReadOnlyStream(_clientState.ContentStream)); }
+            get { return _contentStream ?? (_contentStream = new ReadOnlyStream(_connectionHandle.ContentStream)); }
         }
 
         public string ContentType { get; private set; }
@@ -113,33 +113,33 @@ namespace Niob
 
             bool keepAlive = false;
 
-            if (_clientState.Server.SupportsKeepAlive)
+            if (_connectionHandle.Server.SupportsKeepAlive)
             {
                 // default by protocol
-                keepAlive = (_clientState.Request.Version != HttpVersion.Http10);
+                keepAlive = (_connectionHandle.Request.Version != HttpVersion.Http10);
 
                 string connectionHeader;
 
                 // overrideable by explicit header. backported to http10
-                if (_clientState.Request.Headers.TryGetValue("Connection", out connectionHeader))
+                if (_connectionHandle.Request.Headers.TryGetValue("Connection", out connectionHeader))
                 {
                     keepAlive = connectionHeader.Trim().Equals("keep-alive", StringComparison.OrdinalIgnoreCase);
                 }
             }
 
             // set on the connection
-            _clientState.KeepAlive = keepAlive;
+            _connectionHandle.KeepAlive = keepAlive;
 
             Url = ReconstructUri(uriPath);
         }
 
         private string ReconstructUri(string pathAndQuery)
         {
-            string scheme = _clientState.Binding.Secure ? "https" : "http";
-            int port = _clientState.Binding.Port;
+            string scheme = _connectionHandle.Binding.Secure ? "https" : "http";
+            int port = _connectionHandle.Binding.Port;
 
             string host = string.IsNullOrEmpty(Host)
-                              ? _clientState.Binding.IpAddress.ToString()
+                              ? _connectionHandle.Binding.IpAddress.ToString()
                               : Host;
 
             // remove colon from host header

@@ -23,8 +23,8 @@ namespace Niob
         private static readonly Regex HeaderLineMerge = new Regex(@"\r\n[ \t]+");
 
         private readonly List<Binding> _bindings = new List<Binding>();
-        private readonly ConcurrentDictionary<Guid, ClientState> _allClients = new ConcurrentDictionary<Guid, ClientState>();
-        private readonly ConcurrentQueue<ClientState> _clients = new ConcurrentQueue<ClientState>();
+        private readonly ConcurrentDictionary<Guid, ConnectionHandle> _allClients = new ConcurrentDictionary<Guid, ConnectionHandle>();
+        private readonly ConcurrentQueue<ConnectionHandle> _clients = new ConcurrentQueue<ConnectionHandle>();
         private readonly ConcurrentBag<Socket> _listeningSockets = new ConcurrentBag<Socket>();
         private readonly List<Thread> _threads = new List<Thread>();
         private readonly TimedCounter _dosCounter;
@@ -123,9 +123,9 @@ namespace Niob
             janitor.Start();
         }
 
-        internal void EnqueueAndKickWorkers(ClientState clientState)
+        internal void EnqueueAndKickWorkers(ConnectionHandle connectionHandle)
         {
-            _clients.Enqueue(clientState);
+            _clients.Enqueue(connectionHandle);
             KickWorkers();
         }
 
@@ -218,8 +218,8 @@ namespace Niob
                     client.SendBufferSize = ClientBufferSize;
                     client.ReceiveBufferSize = ClientBufferSize;
 
-                    var clientState = new ClientState(client, binding, this);
-                    clientState.AddOp(ClientStateOp.Reading);
+                    var clientState = new ConnectionHandle(client, binding, this);
+                    clientState.AddState(ClientState.Reading);
                     RecordActivity(clientState);
                     AddNewClient(clientState);
                     EnqueueAndKickWorkers(clientState);
@@ -249,9 +249,9 @@ namespace Niob
             return false;
         }
 
-        private void AddNewClient(ClientState clientState)
+        private void AddNewClient(ConnectionHandle connectionHandle)
         {
-            _allClients.TryAdd(clientState.Id, clientState);
+            _allClients.TryAdd(connectionHandle.Id, connectionHandle);
         }
 
         private void JanitorThread()
@@ -268,38 +268,38 @@ namespace Niob
                 // check sockets for timeouts.
                 foreach (var pair in _allClients)
                 {
-                    ClientState clientState = pair.Value;
+                    ConnectionHandle connectionHandle = pair.Value;
 
-                    if (clientState.Disposed)
+                    if (connectionHandle.Disposed)
                     {
-                        RemoveClient(clientState);
+                        RemoveClient(connectionHandle);
                         continue;
                     }
 
-                    if (clientState.HasOp(ClientStateOp.KeepingAlive))
+                    if (connectionHandle.HasState(ClientState.KeepingAlive))
                     {
-                        if (clientState.LastActivity < kaThreshold)
+                        if (connectionHandle.LastActivity < kaThreshold)
                         {
-                            EndRequest(clientState);
+                            EndRequest(connectionHandle);
                         }
                     }
-                    else if (clientState.HasOp(ClientStateOp.Rendering))
+                    else if (connectionHandle.HasState(ClientState.Rendering))
                     {
-                        if (clientState.LastActivity < reThreshold)
+                        if (connectionHandle.LastActivity < reThreshold)
                         {
-                            OverrideResponse(clientState);
-                            OnRenderTimeout(clientState);
+                            OverrideResponse(connectionHandle);
+                            OnRenderTimeout(connectionHandle);
                         }
                     }
-                    else if (clientState.LastActivity < rwThreshold)
+                    else if (connectionHandle.LastActivity < rwThreshold)
                     {
-                        if (clientState.HasOp(ClientStateOp.Reading))
+                        if (connectionHandle.HasState(ClientState.Reading))
                         {
-                            OverrideResponse(clientState).SendError(408);
+                            OverrideResponse(connectionHandle).SendError(408);
                         }
                         else
                         {
-                            EndRequest(clientState);
+                            EndRequest(connectionHandle);
                         }
                     }
                 }
@@ -311,177 +311,177 @@ namespace Niob
             // check the stopping flag
             while (!_stopSource.IsCancellationRequested)
             {
-                ClientState clientState;
+                ConnectionHandle connectionHandle;
 
                 // got work?
-                if (!_clients.TryDequeue(out clientState) || clientState == null)
+                if (!_clients.TryDequeue(out connectionHandle) || connectionHandle == null)
                 {
                     // no work. wait for the "there might be something of interest" signal to fire.
                     _workPending.WaitOne();
                     continue;
                 }
 
-                WorkerThreadImpl(clientState);
+                WorkerThreadImpl(connectionHandle);
             }
 
             // this thread exited. notify the others. this ensures clean shutdown.
             KickWorkers();
         }
 
-        private string WorkerThreadImpl(ClientState clientState)
+        private string WorkerThreadImpl(ConnectionHandle connectionHandle)
         {
-            if (!clientState.HasOp(ClientStateOp.Ready))
+            if (!connectionHandle.HasState(ClientState.Ready))
             {
-                RecordActivity(clientState);
-                clientState.AsyncInitialize(EnqueueAndKickWorkers, x => EndRequest(x, true));
+                RecordActivity(connectionHandle);
+                connectionHandle.AsyncInitialize(EnqueueAndKickWorkers, x => EndRequest(x, true));
 
                 return "AsyncInitialize";
             }
 
-            if (clientState.HasOp(ClientStateOp.Reading))
+            if (connectionHandle.HasState(ClientState.Reading))
             {
-                RecordActivity(clientState);
+                RecordActivity(connectionHandle);
 
                 bool continueRead;
 
                 try
                 {
-                    continueRead = ShouldContinueReading(clientState);
+                    continueRead = ShouldContinueReading(connectionHandle);
                 }
                 catch (Exception)
                 {
-                    OverrideResponse(clientState).SendError(400);
+                    OverrideResponse(connectionHandle).SendError(400);
                     return "IsReading -> end.";
                 }
 
                 if (continueRead)
                 {
-                    RecordActivity(clientState);
-                    ReadAsync(clientState);
+                    RecordActivity(connectionHandle);
+                    ReadAsync(connectionHandle);
                     return "IsReading -> ReadAsync";
                 }
 
-                if (clientState.HasOp(ClientStateOp.ExpectingContinue))
+                if (connectionHandle.HasState(ClientState.ExpectingContinue))
                 {
-                    clientState.RemoveOp(ClientStateOp.Reading);
-                    EnqueueAndKickWorkers(clientState);
+                    connectionHandle.RemoveState(ClientState.Reading);
+                    EnqueueAndKickWorkers(connectionHandle);
                     return "IsReading -> IsExpectingContinue";
                 }
 
-                clientState.RemoveOp(ClientStateOp.Reading);
-                clientState.AddOp(ClientStateOp.Rendering);
-                EnqueueAndKickWorkers(clientState);
+                connectionHandle.RemoveState(ClientState.Reading);
+                connectionHandle.AddState(ClientState.Rendering);
+                EnqueueAndKickWorkers(connectionHandle);
 
                 return "IsReading -> IsRendering";
             }
 
-            if (clientState.HasOp(ClientStateOp.Writing))
+            if (connectionHandle.HasState(ClientState.Writing))
             {
-                RecordActivity(clientState);
+                RecordActivity(connectionHandle);
 
-                long bytesToSend = clientState.OutStream.Length;
-                long bytesSent = clientState.OutStream.Position;
+                long bytesToSend = connectionHandle.OutStream.Length;
+                long bytesSent = connectionHandle.OutStream.Position;
 
                 if (bytesToSend > bytesSent)
                 {
-                    RecordActivity(clientState);
-                    WriteAsync(clientState);
+                    RecordActivity(connectionHandle);
+                    WriteAsync(connectionHandle);
 
                     return "IsWriting -> WriteAsync";
                 }
                 
-                if (clientState.HasOp(ClientStateOp.PostExpectingContinue))
+                if (connectionHandle.HasState(ClientState.PostExpectingContinue))
                 {
-                    clientState.RemoveOp(ClientStateOp.Writing);
-                    EnqueueAndKickWorkers(clientState);
+                    connectionHandle.RemoveState(ClientState.Writing);
+                    EnqueueAndKickWorkers(connectionHandle);
                     return "IsWriting -> IsPostExpectingContinue";
                 }
 
-                if (clientState.Response != null && clientState.Response.KeepAlive)
+                if (connectionHandle.Response != null && connectionHandle.Response.KeepAlive)
                 {
-                    clientState.RemoveOp(ClientStateOp.Writing);
-                    clientState.Clear();
+                    connectionHandle.RemoveState(ClientState.Writing);
+                    connectionHandle.Clear();
 
-                    clientState.AddOp(ClientStateOp.KeepingAlive);
-                    RecordActivity(clientState);
-                    ReadAsync(clientState);
+                    connectionHandle.AddState(ClientState.KeepingAlive);
+                    RecordActivity(connectionHandle);
+                    ReadAsync(connectionHandle);
 
                     return "IsWriting -> ReadAsync (IsKeepingAlive)";
                 }
 
                 // end.
-                clientState.RemoveOp(ClientStateOp.Writing);
-                EndRequest(clientState);
+                connectionHandle.RemoveState(ClientState.Writing);
+                EndRequest(connectionHandle);
                 return "IsWriting -> end";
             }
 
-            if (clientState.HasOp(ClientStateOp.PostRendering))
+            if (connectionHandle.HasState(ClientState.PostRendering))
             {
-                clientState.RemoveOp(ClientStateOp.Rendering);
-                clientState.RemoveOp(ClientStateOp.PostRendering);
-                RecordActivity(clientState);
+                connectionHandle.RemoveState(ClientState.Rendering);
+                connectionHandle.RemoveState(ClientState.PostRendering);
+                RecordActivity(connectionHandle);
 
-                clientState.OutStream = new MemoryStream();
-                clientState.Response.WriteHeaders(clientState.OutStream);
+                connectionHandle.OutStream = new MemoryStream();
+                connectionHandle.Response.WriteHeaders(connectionHandle.OutStream);
 
-                if (clientState.Response.ContentStream != null)
+                if (connectionHandle.Response.ContentStream != null)
                 {
-                    clientState.Response.ContentStream.CopyTo(clientState.OutStream);
+                    connectionHandle.Response.ContentStream.CopyTo(connectionHandle.OutStream);
                 }
 
-                clientState.OutStream.Flush();
-                clientState.OutStream.Seek(0, SeekOrigin.Begin);
+                connectionHandle.OutStream.Flush();
+                connectionHandle.OutStream.Seek(0, SeekOrigin.Begin);
 
-                clientState.AddOp(ClientStateOp.Writing);
-                EnqueueAndKickWorkers(clientState);
+                connectionHandle.AddState(ClientState.Writing);
+                EnqueueAndKickWorkers(connectionHandle);
 
                 return "IsPostRendering -> IsWriting";
             }
 
-            if (clientState.HasOp(ClientStateOp.Rendering))
+            if (connectionHandle.HasState(ClientState.Rendering))
             {
-                RecordActivity(clientState);
+                RecordActivity(connectionHandle);
 
                 // revert content stream
-                clientState.Request.ContentStream.Seek(0, SeekOrigin.Begin);
-                clientState.Response = new HttpResponse(clientState);
+                connectionHandle.Request.ContentStream.Seek(0, SeekOrigin.Begin);
+                connectionHandle.Response = new HttpResponse(connectionHandle);
 
-                bool hasHandler = OnRequestAccepted(clientState);
+                bool hasHandler = OnRequestAccepted(connectionHandle);
 
                 if (!hasHandler)
                 {
-                    clientState.Response.SendError(500);
+                    connectionHandle.Response.SendError(500);
                     return "IsRendering -> ServerError";
                 }
 
                 return "IsRendering -> OnRequestAccepted";
             }
 
-            if (clientState.HasOp(ClientStateOp.ExpectingContinue))
+            if (connectionHandle.HasState(ClientState.ExpectingContinue))
             {
-                clientState.RemoveOp(ClientStateOp.ExpectingContinue);
-                clientState.OutStream = new MemoryStream(Encoding.ASCII.GetBytes("HTTP/1.1 100 Continue\r\n\r\n"));
-                clientState.AddOp(ClientStateOp.Writing);
-                clientState.AddOp(ClientStateOp.PostExpectingContinue);
-                EnqueueAndKickWorkers(clientState);
+                connectionHandle.RemoveState(ClientState.ExpectingContinue);
+                connectionHandle.OutStream = new MemoryStream(Encoding.ASCII.GetBytes("HTTP/1.1 100 Continue\r\n\r\n"));
+                connectionHandle.AddState(ClientState.Writing);
+                connectionHandle.AddState(ClientState.PostExpectingContinue);
+                EnqueueAndKickWorkers(connectionHandle);
                 return "IsExpectingContinue -> IsReading|IsPostExpectingContinue";
             }
 
-            if (clientState.HasOp(ClientStateOp.PostExpectingContinue))
+            if (connectionHandle.HasState(ClientState.PostExpectingContinue))
             {
-                clientState.RemoveOp(ClientStateOp.PostExpectingContinue);
-                clientState.AddOp(ClientStateOp.Reading);
-                EnqueueAndKickWorkers(clientState);
+                connectionHandle.RemoveState(ClientState.PostExpectingContinue);
+                connectionHandle.AddState(ClientState.Reading);
+                EnqueueAndKickWorkers(connectionHandle);
                 return "IsPostExpectingContinue -> IsReading";
             }
 
             Console.WriteLine("Unknown state.");
-            EndRequest(clientState, true);
+            EndRequest(connectionHandle, true);
 
             return "Unknown -> end";
         }
 
-        private bool OnRequestAccepted(ClientState clientState)
+        private bool OnRequestAccepted(ConnectionHandle connectionHandle)
         {
             EventHandler<RequestEventArgs> handler = RequestAccepted;
 
@@ -490,7 +490,7 @@ namespace Niob
                 return false;
             }
 
-            var eventArgs = new RequestEventArgs(clientState);
+            var eventArgs = new RequestEventArgs(connectionHandle);
 
             try
             {
@@ -504,45 +504,45 @@ namespace Niob
             return true;
         }
 
-        private void ReadAsync(ClientState clientState)
+        private void ReadAsync(ConnectionHandle connectionHandle)
         {
             try
             {
-                clientState.Stream.BeginRead(clientState.Buffer, 0, clientState.Buffer.Length, ReadCallback, clientState);
+                connectionHandle.Stream.BeginRead(connectionHandle.Buffer, 0, connectionHandle.Buffer.Length, ReadCallback, connectionHandle);
             }
             catch (Exception)
             {
                 // e.g. when clients close their KA socket
-                EndRequest(clientState);
+                EndRequest(connectionHandle);
                 return;
             }
         }
 
-        private void WriteAsync(ClientState clientState)
+        private void WriteAsync(ConnectionHandle connectionHandle)
         {
-            long bytesToSend = clientState.OutStream.Length;
-            long bytesSent = clientState.OutStream.Position;
+            long bytesToSend = connectionHandle.OutStream.Length;
+            long bytesSent = connectionHandle.OutStream.Position;
 
             var size = (int) Math.Min(bytesToSend - bytesSent, ClientBufferSize);
 
-            size = clientState.OutStream.Read(clientState.Buffer, 0, size);
+            size = connectionHandle.OutStream.Read(connectionHandle.Buffer, 0, size);
 
             try
             {
-                clientState.Stream.BeginWrite(clientState.Buffer, 0, size, WriteCallback, clientState);
+                connectionHandle.Stream.BeginWrite(connectionHandle.Buffer, 0, size, WriteCallback, connectionHandle);
             }
             catch (Exception)
             {
-                EndRequest(clientState);
+                EndRequest(connectionHandle);
                 return;
             }
         }
 
         private void WriteCallback(IAsyncResult ar)
         {
-            var clientState = (ClientState) ar.AsyncState;
+            var clientState = (ConnectionHandle) ar.AsyncState;
 
-            clientState.RemoveOp(ClientStateOp.Writing);
+            clientState.RemoveState(ClientState.Writing);
 
             if (clientState.Disposed)
                 return;
@@ -557,22 +557,22 @@ namespace Niob
                 return;
             }
 
-            clientState.AddOp(ClientStateOp.Writing);
+            clientState.AddState(ClientState.Writing);
             EnqueueAndKickWorkers(clientState);
         }
 
         private void ReadCallback(IAsyncResult ar)
         {
-            var clientState = (ClientState) ar.AsyncState;
+            var clientState = (ConnectionHandle) ar.AsyncState;
 
-            clientState.RemoveOp(ClientStateOp.Reading);
+            clientState.RemoveState(ClientState.Reading);
 
             if (clientState.Disposed)
                 return;
 
-            if (clientState.HasOp(ClientStateOp.KeepingAlive))
+            if (clientState.HasState(ClientState.KeepingAlive))
             {
-                clientState.RemoveOp(ClientStateOp.KeepingAlive);
+                clientState.RemoveState(ClientState.KeepingAlive);
             }
 
             int inBytes;
@@ -612,33 +612,33 @@ namespace Niob
                 return;
             }
 
-            clientState.AddOp(ClientStateOp.Reading);
+            clientState.AddState(ClientState.Reading);
             EnqueueAndKickWorkers(clientState);
         }
 
-        private void EndRequest(ClientState clientState, bool rst = false)
+        private void EndRequest(ConnectionHandle connectionHandle, bool rst = false)
         {
             try
             {
-                RemoveClient(clientState);
+                RemoveClient(connectionHandle);
 
-                if (!clientState.Disposed)
+                if (!connectionHandle.Disposed)
                 {
                     if (!rst)
                     {
                         try
                         {
-                            clientState.Socket.Shutdown(SocketShutdown.Both);
+                            connectionHandle.Socket.Shutdown(SocketShutdown.Both);
                         }
                         catch
                         {
                         }
                     }
 
-                    clientState.Socket.Close();
+                    connectionHandle.Socket.Close();
                 }
 
-                using (clientState)
+                using (connectionHandle)
                 {
                 }
             }
@@ -648,26 +648,26 @@ namespace Niob
             }
         }
 
-        private void RemoveClient(ClientState clientState)
+        private void RemoveClient(ConnectionHandle connectionHandle)
         {
-            ClientState removed;
-            _allClients.TryRemove(clientState.Id, out removed);
+            ConnectionHandle removed;
+            _allClients.TryRemove(connectionHandle.Id, out removed);
         }
 
-        private static bool ShouldContinueReading(ClientState clientState)
+        private static bool ShouldContinueReading(ConnectionHandle connectionHandle)
         {
             // shortcut
-            if (clientState.HeaderLength == -1 && clientState.HeaderStream.Length == 0)
+            if (connectionHandle.HeaderLength == -1 && connectionHandle.HeaderStream.Length == 0)
                 return true;
 
             bool continueRead = false;
 
             // check if we got the complete header
-            if (clientState.HeaderLength == -1)
+            if (connectionHandle.HeaderLength == -1)
             {
                 int headerLength = -1;
                 long contentLength = -1;
-                int scanStart = clientState.LastHeaderEndOffset;
+                int scanStart = connectionHandle.LastHeaderEndOffset;
 
                 // revert 3 bytes
                 scanStart -= 3;
@@ -676,11 +676,11 @@ namespace Niob
                     scanStart = 0;
 
                 // ref to internal buffer
-                byte[] buffer = clientState.HeaderStream.GetBuffer();
+                byte[] buffer = connectionHandle.HeaderStream.GetBuffer();
 
                 int seq = 0;
 
-                for (int i = scanStart; i < clientState.HeaderStream.Length; i++)
+                for (int i = scanStart; i < connectionHandle.HeaderStream.Length; i++)
                 {
                     if (seq == 0 && buffer[i] == '\r')
                     {
@@ -711,14 +711,14 @@ namespace Niob
                     headerLength = -1;
                 }
 
-                clientState.LastHeaderEndOffset = (int) clientState.HeaderStream.Length;
+                connectionHandle.LastHeaderEndOffset = (int) connectionHandle.HeaderStream.Length;
 
                 if (headerLength == -1)
                 {
                     // no header end found
                     // check max header length
 
-                    if (clientState.HeaderStream.Length > MaxHeaderSize)
+                    if (connectionHandle.HeaderStream.Length > MaxHeaderSize)
                     {
                         throw new ProtocolViolationException("Header too big.");
                     }
@@ -727,7 +727,7 @@ namespace Niob
                 }
                 else
                 {
-                    clientState.Request = new HttpRequest(clientState);
+                    connectionHandle.Request = new HttpRequest(connectionHandle);
 
                     // header found. read the content-length http header
                     // to determine if we should continue reading.
@@ -738,11 +738,11 @@ namespace Niob
 
                     string[] lines = header.Split(CrLfArray, StringSplitOptions.RemoveEmptyEntries);
 
-                    clientState.Request.ReadHeader(lines);
+                    connectionHandle.Request.ReadHeader(lines);
 
                     string contentLengthHeader;
 
-                    if (clientState.Request.Headers.TryGetValue("Content-Length", out contentLengthHeader))
+                    if (connectionHandle.Request.Headers.TryGetValue("Content-Length", out contentLengthHeader))
                     {
                         if (!long.TryParse(contentLengthHeader, out contentLength))
                         {
@@ -752,48 +752,48 @@ namespace Niob
 
                     string expectHeader;
 
-                    if (clientState.Request.Headers.TryGetValue("Expect", out expectHeader))
+                    if (connectionHandle.Request.Headers.TryGetValue("Expect", out expectHeader))
                     {
                         if (StringComparer.OrdinalIgnoreCase.Equals(expectHeader, "100-continue"))
                         {
-                            clientState.AddOp(ClientStateOp.ExpectingContinue);
+                            connectionHandle.AddState(ClientState.ExpectingContinue);
                         }
                     }
 
                     // init content stream
                     if (contentLength > BigFileThreshold)
                     {
-                        clientState.ContentStreamFile = Path.GetTempFileName();
-                        clientState.ContentStream = File.Create(clientState.ContentStreamFile);
+                        connectionHandle.ContentStreamFile = Path.GetTempFileName();
+                        connectionHandle.ContentStream = File.Create(connectionHandle.ContentStreamFile);
                     }
                     else
                     {
-                        clientState.ContentStream = new MemoryStream();
+                        connectionHandle.ContentStream = new MemoryStream();
                     }
 
                     // check if some content got on the wrong stream
-                    if (clientState.HeaderStream.Length > headerLength)
+                    if (connectionHandle.HeaderStream.Length > headerLength)
                     {
                         // fix it
-                        clientState.HeaderStream.Seek(headerLength, SeekOrigin.Begin);
-                        clientState.HeaderStream.CopyTo(clientState.ContentStream);
+                        connectionHandle.HeaderStream.Seek(headerLength, SeekOrigin.Begin);
+                        connectionHandle.HeaderStream.CopyTo(connectionHandle.ContentStream);
                     }
 
                     // we are done with the header stream
-                    clientState.HeaderStream.Position = 0;
+                    connectionHandle.HeaderStream.Position = 0;
                 }
 
-                clientState.HeaderLength = headerLength;
-                clientState.ContentLength = contentLength;
+                connectionHandle.HeaderLength = headerLength;
+                connectionHandle.ContentLength = contentLength;
             }
 
             // we got the header...
-            if (clientState.HeaderLength >= 0)
+            if (connectionHandle.HeaderLength >= 0)
             {
-                if (!clientState.HasOp(ClientStateOp.ExpectingContinue) && clientState.ContentLength >= 0)
+                if (!connectionHandle.HasState(ClientState.ExpectingContinue) && connectionHandle.ContentLength >= 0)
                 {
                     // we expect a payload ... check if we got all
-                    if (clientState.BytesRead < clientState.ContentLength)
+                    if (connectionHandle.BytesRead < connectionHandle.ContentLength)
                     {
                         continueRead = true;
                     }
@@ -813,9 +813,9 @@ namespace Niob
             return DateTimeOffset.UtcNow.Ticks;
         }
 
-        private static void RecordActivity(ClientState clientState)
+        private static void RecordActivity(ConnectionHandle connectionHandle)
         {
-            clientState.LastActivity = GetTimestamp();
+            connectionHandle.LastActivity = GetTimestamp();
         }
 
         public void Stop()
@@ -853,7 +853,7 @@ namespace Niob
             // clear all queued client states
             while (!_clients.IsEmpty)
             {
-                ClientState state;
+                ConnectionHandle state;
 
                 _clients.TryDequeue(out state);
 
@@ -872,26 +872,26 @@ namespace Niob
             _stopSource = null;
         }
 
-        private void OnRenderTimeout(ClientState clientState)
+        private void OnRenderTimeout(ConnectionHandle connectionHandle)
         {
             var handler = RenderTimeout;
 
             if (handler != null)
             {
-                RenderTimeout(this, new RequestEventArgs(clientState));
+                RenderTimeout(this, new RequestEventArgs(connectionHandle));
             }
             else
             {
-                EndRequest(clientState);
+                EndRequest(connectionHandle);
             }
         }
 
-        private static HttpResponse OverrideResponse(ClientState clientState)
+        private static HttpResponse OverrideResponse(ConnectionHandle connectionHandle)
         {
-            if (clientState.Response != null)
-                clientState.Response.Vetoed = true;
+            if (connectionHandle.Response != null)
+                connectionHandle.Response.Vetoed = true;
 
-            return clientState.Response = new HttpResponse(clientState);
+            return connectionHandle.Response = new HttpResponse(connectionHandle);
         }
     }
 }

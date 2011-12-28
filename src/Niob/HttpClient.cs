@@ -7,12 +7,12 @@ namespace Niob
 {
     public class HttpClient
     {
-        private readonly ClientState _clientState;
+        private readonly ConnectionHandle _connectionHandle;
         private string _fingerprint;
 
-        public HttpClient(ClientState clientState)
+        public HttpClient(ConnectionHandle connectionHandle)
         {
-            _clientState = clientState;
+            _connectionHandle = connectionHandle;
         }
 
         public string Fingerprint
@@ -22,7 +22,7 @@ namespace Niob
 
         public IPEndPoint EndPoint
         {
-            get { return (IPEndPoint) _clientState.Socket.RemoteEndPoint; }
+            get { return (IPEndPoint) _connectionHandle.Socket.RemoteEndPoint; }
         }
 
         private string GetFingerprint()

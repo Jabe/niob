@@ -4,15 +4,15 @@ namespace Niob
 {
     public class RequestEventArgs : EventArgs
     {
-        private readonly ClientState _clientState;
+        private readonly ConnectionHandle _connectionHandle;
 
-        public RequestEventArgs(ClientState clientState)
+        public RequestEventArgs(ConnectionHandle connectionHandle)
         {
-            _clientState = clientState;
+            _connectionHandle = connectionHandle;
 
             // copy the refs
-            Request = _clientState.Request;
-            Response = _clientState.Response;
+            Request = _connectionHandle.Request;
+            Response = _connectionHandle.Response;
         }
 
         public HttpRequest Request { get; private set; }

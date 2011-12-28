@@ -7,17 +7,17 @@ namespace Niob
 {
     public class HttpResponse
     {
-        private readonly ClientState _clientState;
+        private readonly ConnectionHandle _connectionHandle;
 
         private IDictionary<string, string> _headers;
 
-        public HttpResponse(ClientState clientState)
+        public HttpResponse(ConnectionHandle connectionHandle)
         {
-            _clientState = clientState;
+            _connectionHandle = connectionHandle;
 
-            if (clientState.Request != null)
+            if (connectionHandle.Request != null)
             {
-                Version = clientState.Request.Version;
+                Version = connectionHandle.Request.Version;
             }
             else
             {
@@ -40,8 +40,8 @@ namespace Niob
 
         public bool KeepAlive
         {
-            get { return _clientState.KeepAlive; }
-            set { _clientState.KeepAlive = value; }
+            get { return _connectionHandle.KeepAlive; }
+            set { _connectionHandle.KeepAlive = value; }
         }
 
         public IDictionary<string, string> Headers
@@ -119,15 +119,15 @@ namespace Niob
                 return;
             }
 
-            if (_clientState.Disposed)
+            if (_connectionHandle.Disposed)
                 return;
 
             // make sure the r/w states arn't set (for error responses)
-            _clientState.RemoveOp(ClientStateOp.Reading);
-            _clientState.RemoveOp(ClientStateOp.Writing);
+            _connectionHandle.RemoveState(ClientState.Reading);
+            _connectionHandle.RemoveState(ClientState.Writing);
 
-            _clientState.AddOp(ClientStateOp.PostRendering);
-            _clientState.Server.EnqueueAndKickWorkers(_clientState);
+            _connectionHandle.AddState(ClientState.PostRendering);
+            _connectionHandle.Server.EnqueueAndKickWorkers(_connectionHandle);
         }
     }
 }
