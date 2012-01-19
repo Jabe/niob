@@ -66,7 +66,7 @@ namespace Niob
 
             _disposed = true;
 
-            if (!_stopSource.IsCancellationRequested)
+            if (_stopSource != null && !_stopSource.IsCancellationRequested)
             {
                 Stop();
             }
