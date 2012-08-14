@@ -64,12 +64,12 @@ namespace Niob
                 return;
             }
 
-            _disposed = true;
-
             if (_stopSource != null && !_stopSource.IsCancellationRequested)
             {
                 Stop();
             }
+
+            _disposed = true;
 
             if (_workPending != null)
             {

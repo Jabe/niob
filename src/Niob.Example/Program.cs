@@ -33,6 +33,8 @@ namespace Niob.Example
             Console.WriteLine("stopping");
             niob.Stop();
             Console.WriteLine("stopped");
+
+            niob.Dispose();
         }
 
         private static void HandleRequestAsync(object sender, RequestEventArgs e)
