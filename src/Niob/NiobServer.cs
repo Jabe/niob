@@ -793,7 +793,7 @@ namespace Niob
                 if (!connectionHandle.HasState(ClientState.ExpectingContinue) && connectionHandle.ContentLength >= 0)
                 {
                     // we expect a payload ... check if we got all
-                    if (connectionHandle.BytesRead < connectionHandle.ContentLength)
+                    if ((connectionHandle.BytesRead - connectionHandle.HeaderLength) < connectionHandle.ContentLength)
                     {
                         continueRead = true;
                     }
