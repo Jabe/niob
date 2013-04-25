@@ -23,7 +23,7 @@ namespace Niob.SimpleHtml
                 .Replace("<", "&lt;")
                 .Replace(">", "&gt;")
                 .Replace("\"", "&quot;")
-                .Replace("'", "&apos;");
+                .Replace("'", "&#x27;");
         }
 
         public static void StartHtml(this HttpResponse response, string pageTitle)
