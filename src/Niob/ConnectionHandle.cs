@@ -158,7 +158,7 @@ namespace Niob
                 try
                 {
                     _tlsStream = new SslStream(_networkStream);
-                    _tlsStream.BeginAuthenticateAsServer(Binding.Certificate, false, SslProtocols.Tls12, false,
+                    _tlsStream.BeginAuthenticateAsServer(Binding.Certificate, false, Binding.SslProtocols, false,
                                                          InitializeCallback, onSuccess);
                 }
                 catch (Exception)

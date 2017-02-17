@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Net;
+using System.Security.Authentication;
 using System.Security.Cryptography.X509Certificates;
 
 namespace Niob
@@ -24,5 +25,6 @@ namespace Niob
         public ushort Port { get; private set; }
         public bool Secure { get; private set; }
         public X509Certificate2 Certificate { get; set; }
+        public SslProtocols SslProtocols { get; set; } = SslProtocols.Tls | SslProtocols.Tls11 | SslProtocols.Tls12;
     }
 }
